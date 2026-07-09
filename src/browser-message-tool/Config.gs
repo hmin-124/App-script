@@ -14,14 +14,20 @@
  */
 
 class Config {
-  /** @returns {string} Tên menu cấp 1 hiển thị trên Google Sheets. */
+  /**
+   * Tên menu cấp 1 hiển thị trên Google Sheets. Google Apps Script
+   * (`SpreadsheetApp.getUi().createMenu()`) KHÔNG hỗ trợ icon ảnh thật, nên
+   * ta chèn icon dạng emoji Unicode ngay trong chuỗi tên menu để dễ nhận
+   * diện — cách này vẫn hiển thị đúng trên thanh menu Sheets.
+   * @returns {string}
+   */
   static get MENU_NAME() {
-    return 'M8 Tools';
+    return '🛠️ M8 Tools';
   }
 
-  /** @returns {string} Tên menu item kích hoạt chức năng tạo tin nhắn. */
+  /** @returns {string} Tên menu item kích hoạt chức năng tạo tin nhắn (kèm icon). */
   static get MENU_ITEM_LABEL() {
-    return 'Tạo tin nhắn trình duyệt';
+    return '💬 Tạo tin nhắn trình duyệt';
   }
 
   /**
