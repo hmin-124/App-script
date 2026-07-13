@@ -2,8 +2,9 @@
 
 Hệ thống Dashboard báo cáo hiệu suất ADS của team DIG1, chạy hoàn toàn trong
 Google Sheets bằng Google Apps Script (không dùng Looker Studio). Chọn tháng
-qua Dropdown trên sheet `CONFIG`, Dashboard tự động refresh (KPI cards, bảng
-Brand/Member, Top Performer, 4 chart) — không cần chạy thủ công.
+qua ô Dropdown **🔎 Chọn tháng** ngay trên sheet `DASHBOARD` (hoặc qua sheet
+`CONFIG` như trước), Dashboard tự động refresh (KPI cards, bảng Brand/Member,
+Top Performer, 4 chart) — không cần chạy thủ công.
 
 ## Cấu trúc file
 
@@ -38,11 +39,15 @@ Brand/Member, Top Performer, 4 chart) — không cần chạy thủ công.
 
 - Ô `Value` của dòng `SelectedMonth` sẽ được gắn Dropdown (danh sách các
   tháng có dữ liệu thật trong `DATA_ADS`) sau khi chạy Setup.
+- Đây vẫn là nơi lưu trữ CHÍNH THỨC của tháng đang chọn — nhưng bạn không
+  cần vào sheet này nữa, xem mục filter trên `DASHBOARD` dưới đây.
 
 ### `DASHBOARD` (sheet trống, để hệ thống tự render)
 
 Không cần tạo sẵn nội dung — `DashboardService`/`ChartService` sẽ tự vẽ mỗi
-lần refresh.
+lần refresh. Ngay dưới Title có ô **🔎 Chọn tháng** (nền vàng amber, có
+Dropdown) — đổi tháng trực tiếp tại đây, Dashboard tự cập nhật, không cần mở
+sheet `CONFIG`.
 
 ### `_ChartData` (tự động tạo, ẨN)
 
@@ -78,9 +83,16 @@ trực tiếp). Không cần đụng vào sheet này.
 
 - **`onEdit(e)`** là **Simple Trigger** (không cần cấu hình gì thêm trong
   menu Triggers của Apps Script — Google tự nhận diện hàm tên `onEdit` là
-  trigger đơn giản). Khi ô `Value` của dòng `SelectedMonth` trên sheet
-  `CONFIG` bị sửa (gõ tay hoặc chọn từ Dropdown), Dashboard tự động
-  `refreshDashboard()` — không cần chạy thủ công.
+  trigger đơn giản). Nhận diện **2 nơi** có thể đổi tháng:
+  1. Ô **🔎 Chọn tháng** ngay trên sheet `DASHBOARD` (cách khuyến nghị,
+     không cần chuyển sheet) — khi đổi, giá trị được đồng bộ ngược lại vào
+     `CONFIG` (qua `DataService.setSelectedMonth()`) rồi `refreshDashboard()`.
+  2. Ô `Value` của dòng `SelectedMonth` trên sheet `CONFIG` (cách cũ, vẫn
+     hoạt động) → `refreshDashboard()` trực tiếp.
+- Giá trị nhập/paste không đúng định dạng `YYYY-MM` vào ô filter trên
+  Dashboard sẽ bị bỏ qua (không refresh, không đồng bộ) — Dropdown validation
+  (`setAllowInvalid(false)`) đã ngăn việc này ở phía UI, đây chỉ là lớp bảo
+  vệ thêm phòng trường hợp paste đè lên ô.
 - Nếu vì lý do nào đó Simple Trigger không kích hoạt (một số trường hợp hiếm
   do giới hạn của Simple Trigger), menu **🔄 Cập nhật Dashboard** luôn có sẵn
   để refresh thủ công.
@@ -101,7 +113,8 @@ Khi `Cost = 0`, `ROI`/`ROAS` trả về `0` (tránh chia cho 0) thay vì lỗi/`
 ```
 ┌───────────────────────────────────────────────────────────┐
 │         📊 DIG1 ADS PERFORMANCE DASHBOARD (title)          │
-│              Tháng báo cáo: ... • Cập nhật: ...            │
+│  [🔎 Chọn tháng: 2026-06 ▾]  ← Chọn tháng rồi Enter...     │
+│                    Cập nhật lần cuối: ...                  │
 │                                                             │
 │  [💰Cost] [📈Revenue] [💵Profit] [📊ROI] [🚀ROAS] [🎯FTD]   │  ← KPI Cards
 │                                                             │
@@ -117,6 +130,11 @@ Khi `Cost = 0`, `ROI`/`ROAS` trả về `0` (tránh chia cho 0) thay vì lỗi/`
 Mỗi hàm `render*()` trong `DashboardService` trả về dòng kế tiếp còn trống,
 nên số dòng Brand/Member thay đổi giữa các tháng không làm vỡ layout hay
 chồng lấp chart.
+
+Riêng ô filter **🔎 Chọn tháng** luôn nằm ở vị trí **CỐ ĐỊNH** (`Config.
+FILTER_VALUE_POSITION`, ngay dòng thứ 2 — không phụ thuộc dữ liệu), để
+`onEdit()` luôn nhận diện đúng ô này dù Dashboard được vẽ lại hoàn toàn mỗi
+lần refresh.
 
 ## Mở rộng thêm KPI mới
 
