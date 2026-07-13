@@ -40,6 +40,7 @@ function refreshDashboard() {
   try {
     const dataService = new DashboardDataService();
     const yearMonth = dataService.getSelectedMonth();
+    const availableMonths = dataService.getAvailableMonths();
     const records = dataService.getDataByMonth(yearMonth);
 
     const summary = ReportService.calculateSummary(records);
@@ -57,7 +58,15 @@ function refreshDashboard() {
 
     const dashboardSheet = dataService.getDashboardSheet();
     const dashboardService = new DashboardService(dashboardSheet);
-    const chartStartRow = dashboardService.renderAll(yearMonth, summary, brandReport, memberReport, topMembers, topBrands);
+    const chartStartRow = dashboardService.renderAll(
+      yearMonth,
+      availableMonths,
+      summary,
+      brandReport,
+      memberReport,
+      topMembers,
+      topBrands
+    );
 
     const chartService = new ChartService(dashboardSheet);
     chartService.createAllCharts(dailyReport, brandReport, memberReport, chartStartRow);
@@ -75,8 +84,13 @@ function refreshDashboard() {
 }
 
 /**
- * Simple Trigger onEdit: khi người dùng đổi giá trị ô "SelectedMonth" trên
- * sheet CONFIG, tự động refresh toàn bộ Dashboard — không cần chạy thủ công.
+ * Simple Trigger onEdit: tự động refresh toàn bộ Dashboard khi tháng được
+ * chọn thay đổi — KHÔNG cần chạy thủ công. Nhận diện 2 nơi có thể đổi tháng:
+ *   1) Ô "Value" của dòng SelectedMonth trên sheet CONFIG (cách cũ).
+ *   2) Ô filter dropdown NGAY TRÊN sheet DASHBOARD (cách mới, thuận tiện
+ *      hơn — không cần chuyển sheet). Khi đổi ở đây, giá trị được đồng bộ
+ *      ngược lại vào CONFIG (qua DashboardDataService.setSelectedMonth) để
+ *      CONFIG luôn là nơi lưu trữ chính thức của lựa chọn hiện tại.
  * @param {GoogleAppsScript.Events.SheetsOnEdit} e
  */
 function onEdit(e) {
@@ -84,21 +98,33 @@ function onEdit(e) {
     if (!e || !e.range) return;
 
     const editedSheet = e.range.getSheet();
-    if (editedSheet.getName() !== DashboardConfig.SHEET_NAMES.CONFIG) return;
-
     const dataService = new DashboardDataService();
-    const selectedMonthCell = dataService.getConfigValueCell(DashboardConfig.CONFIG_KEYS.SELECTED_MONTH);
-    if (!selectedMonthCell) return;
 
-    const isSelectedMonthEdited = DashboardUtils.isCellWithinRange(
-      selectedMonthCell.getRow(),
-      selectedMonthCell.getColumn(),
-      e.range
-    );
+    if (editedSheet.getName() === DashboardConfig.SHEET_NAMES.CONFIG) {
+      const selectedMonthCell = dataService.getConfigValueCell(DashboardConfig.CONFIG_KEYS.SELECTED_MONTH);
+      if (!selectedMonthCell) return;
 
-    if (isSelectedMonthEdited) {
-      Logger.log(`onEdit: SelectedMonth thay đổi thành "${e.value || e.range.getValue()}" -> refreshDashboard().`);
+      if (DashboardUtils.isCellWithinRange(selectedMonthCell.getRow(), selectedMonthCell.getColumn(), e.range)) {
+        Logger.log(`onEdit: SelectedMonth (CONFIG) thay đổi thành "${e.value || e.range.getValue()}" -> refreshDashboard().`);
+        refreshDashboard();
+      }
+      return;
+    }
+
+    if (editedSheet.getName() === DashboardConfig.SHEET_NAMES.DASHBOARD) {
+      const filterRange = DashboardService.getMonthFilterValueRange(editedSheet);
+      if (!DashboardUtils.isCellWithinRange(filterRange.getRow(), filterRange.getColumn(), e.range)) return;
+
+      const newMonth = String(e.range.getValue() || '').trim();
+      if (!DashboardUtils.isValidYearMonth(newMonth)) {
+        Logger.log(`onEdit: Giá trị tháng "${newMonth}" trên Dashboard không hợp lệ (định dạng YYYY-MM), bỏ qua.`);
+        return;
+      }
+
+      Logger.log(`onEdit: Đổi tháng trực tiếp trên Dashboard thành "${newMonth}" -> đồng bộ CONFIG -> refreshDashboard().`);
+      dataService.setSelectedMonth(newMonth);
       refreshDashboard();
+      return;
     }
   } catch (error) {
     console.error(`onEdit: ${error.message}`);

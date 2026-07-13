@@ -80,6 +80,9 @@ File dùng chung, đã sửa để tạo cả 2 menu:
    sheet + dữ liệu mẫu lần đầu.
 8. Với tin nhắn trình duyệt: bôi đen dòng phiếu → **🛠️ M8 Tools → 💬 Tạo tin
    nhắn trình duyệt**.
+9. Đổi tháng báo cáo: dùng ngay ô **🔎 Chọn tháng** (nền vàng amber) ở dòng
+   thứ 2 trên sheet `DASHBOARD` — không cần mở sheet `CONFIG`. Chọn tháng
+   khác rồi Enter, Dashboard tự động cập nhật toàn bộ (KPI, bảng, chart).
 
 ## Lưu ý khi cập nhật code sau này
 

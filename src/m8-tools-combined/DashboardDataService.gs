@@ -337,6 +337,29 @@ class DashboardDataService {
   }
 
   /**
+   * Ghi tháng mới vào ô "Value" của dòng SelectedMonth trên sheet CONFIG.
+   * Dùng để đồng bộ khi người dùng đổi filter trực tiếp trên Dashboard
+   * (CONFIG vẫn là nơi lưu trữ chính thức của lựa chọn hiện tại).
+   * @param {string} month - Định dạng "YYYY-MM".
+   */
+  setSelectedMonth(month) {
+    try {
+      if (!DashboardUtils.isValidYearMonth(month)) {
+        throw new Error(`Giá trị tháng "${month}" không hợp lệ (định dạng cần là YYYY-MM).`);
+      }
+      const cell = this.getConfigValueCell(DashboardConfig.CONFIG_KEYS.SELECTED_MONTH);
+      if (!cell) {
+        throw new Error(
+          `Không tìm thấy dòng cấu hình "${DashboardConfig.CONFIG_KEYS.SELECTED_MONTH}" trong sheet "${DashboardConfig.SHEET_NAMES.CONFIG}".`
+        );
+      }
+      cell.setValue(month);
+    } catch (error) {
+      throw new Error(`DashboardDataService.setSelectedMonth: ${error.message}`);
+    }
+  }
+
+  /**
    * Gắn Dropdown validation (danh sách tháng) vào ô SelectedMonth, dựa trên
    * các tháng thực tế có trong DATA_ADS (hoặc fallback 12 tháng của năm hiện
    * tại nếu chưa có dữ liệu).

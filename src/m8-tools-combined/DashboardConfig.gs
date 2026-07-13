@@ -111,6 +111,13 @@ class DashboardConfig {
       BORDER: '#c9d6e3',
       POSITIVE: '#137333',
       NEGATIVE: '#c5221f',
+      // Màu riêng cho ô filter chọn tháng — cố ý nổi bật (amber) để người
+      // dùng nhận ra ngay đây là ô có thể bấm vào để đổi tháng.
+      FILTER_LABEL_BG: '#f9ab00',
+      FILTER_LABEL_FONT: '#202124',
+      FILTER_VALUE_BG: '#fef7e0',
+      FILTER_VALUE_FONT: '#b06000',
+      FILTER_BORDER: '#f9ab00',
     };
   }
 
@@ -135,6 +142,26 @@ class DashboardConfig {
       CHART_HEIGHT_PX: 280,
       CHART_ROW_GAP: 17, // Số dòng cách nhau giữa 2 hàng chart (đủ cao cho 1 chart)
       CHART_COL_GAP: 8, // Số cột cách nhau giữa 2 chart cùng hàng
+      // Ô filter chọn tháng luôn nằm CỐ ĐỊNH ở dòng (START_ROW + 1), ngay
+      // dưới Title — vị trí không phụ thuộc dữ liệu, để onEdit() nhận diện
+      // đúng ô này một cách xác định (deterministic) mỗi lần refresh.
+      FILTER_LABEL_WIDTH: 1, // Số cột cho ô nhãn "🔎 Chọn tháng:"
+      FILTER_VALUE_WIDTH: 2, // Số cột (merge) cho ô dropdown giá trị tháng
+    };
+  }
+
+  /**
+   * Vị trí (row/col/width) CỐ ĐỊNH của ô dropdown chọn tháng trên Dashboard,
+   * tính thuần từ LAYOUT — không phụ thuộc Sheet/dữ liệu. Dùng bởi cả
+   * DashboardService (khi render) và Code.gs (onEdit, để nhận diện ô này).
+   * @returns {{row:number, col:number, width:number}}
+   */
+  static get FILTER_VALUE_POSITION() {
+    const layout = DashboardConfig.LAYOUT;
+    return {
+      row: layout.START_ROW + 1,
+      col: layout.START_COL + layout.FILTER_LABEL_WIDTH,
+      width: layout.FILTER_VALUE_WIDTH,
     };
   }
 }

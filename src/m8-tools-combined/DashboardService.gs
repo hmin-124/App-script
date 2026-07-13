@@ -37,12 +37,14 @@ class DashboardService {
   }
 
   /**
-   * Render tiêu đề Dashboard + dòng phụ đề (tháng báo cáo, thời gian cập nhật).
+   * Render tiêu đề Dashboard + ô filter chọn tháng + dòng phụ đề (thời gian
+   * cập nhật).
    * @param {string} yearMonth - Tháng đang chọn, định dạng "YYYY-MM".
+   * @param {string[]} availableMonths - Danh sách tháng hợp lệ cho dropdown filter.
    * @param {number} startRow
    * @returns {number} Dòng kế tiếp còn trống.
    */
-  renderHeader(yearMonth, startRow) {
+  renderHeader(yearMonth, availableMonths, startRow) {
     try {
       const layout = DashboardConfig.LAYOUT;
       const colors = DashboardConfig.COLORS;
@@ -61,12 +63,14 @@ class DashboardService {
         .setVerticalAlignment('middle');
       this.sheet.setRowHeight(titleRow, 36);
 
-      const subtitleRow = titleRow + 1;
+      const filterRow = titleRow + 1;
+      const subtitleRow = this.renderMonthFilter(yearMonth, availableMonths, filterRow);
+
       const updatedAt = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
       this.sheet
         .getRange(subtitleRow, layout.START_COL, 1, totalWidth)
         .merge()
-        .setValue(`Tháng báo cáo: ${DashboardUtils.formatMonthLabel(yearMonth)}   •   Cập nhật lần cuối: ${updatedAt}`)
+        .setValue(`Cập nhật lần cuối: ${updatedAt}`)
         .setFontColor(colors.SUBTITLE_FONT)
         .setFontStyle('italic')
         .setHorizontalAlignment('center');
@@ -75,6 +79,80 @@ class DashboardService {
     } catch (error) {
       throw new Error(`DashboardService.renderHeader: ${error.message}`);
     }
+  }
+
+  /**
+   * Render ô filter chọn tháng NGAY TRÊN Dashboard: nhãn + dropdown (data
+   * validation) + hướng dẫn ngắn. Vị trí luôn khớp với `DashboardConfig.FILTER_VALUE_
+   * POSITION` (cố định, không phụ thuộc dữ liệu) — để `onEdit()` trong
+   * Code.gs nhận diện đúng ô này mỗi lần người dùng sửa.
+   * @param {string} selectedMonth - Tháng đang chọn, "YYYY-MM".
+   * @param {string[]} availableMonths - Danh sách tháng hợp lệ cho dropdown.
+   * @param {number} row - Dòng để vẽ filter (luôn bằng DashboardConfig.FILTER_VALUE_POSITION.row).
+   * @returns {number} Dòng kế tiếp còn trống.
+   */
+  renderMonthFilter(selectedMonth, availableMonths, row) {
+    try {
+      const layout = DashboardConfig.LAYOUT;
+      const colors = DashboardConfig.COLORS;
+      const position = DashboardConfig.FILTER_VALUE_POSITION;
+
+      this.sheet
+        .getRange(row, layout.START_COL, 1, layout.FILTER_LABEL_WIDTH)
+        .setValue('🔎 Chọn tháng:')
+        .setBackground(colors.FILTER_LABEL_BG)
+        .setFontColor(colors.FILTER_LABEL_FONT)
+        .setFontWeight('bold')
+        .setHorizontalAlignment('center')
+        .setVerticalAlignment('middle');
+
+      const valueRange = this.sheet
+        .getRange(row, position.col, 1, position.width)
+        .merge()
+        .setValue(selectedMonth)
+        .setBackground(colors.FILTER_VALUE_BG)
+        .setFontColor(colors.FILTER_VALUE_FONT)
+        .setFontWeight('bold')
+        .setFontSize(12)
+        .setHorizontalAlignment('center')
+        .setVerticalAlignment('middle')
+        .setBorder(true, true, true, true, false, false, colors.FILTER_BORDER, SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+
+      const months =
+        availableMonths && availableMonths.length > 0 ? availableMonths : DashboardUtils.generateYearMonths(new Date().getFullYear());
+      const rule = SpreadsheetApp.newDataValidation().requireValueInList(months, true).setAllowInvalid(false).build();
+      valueRange.setDataValidation(rule);
+
+      const hintCol = position.col + position.width;
+      const hintWidth = this._getCardsTotalWidth() - layout.FILTER_LABEL_WIDTH - position.width;
+      if (hintWidth > 0) {
+        this.sheet
+          .getRange(row, hintCol, 1, hintWidth)
+          .setValue('← Chọn tháng rồi Enter, Dashboard sẽ tự động cập nhật')
+          .setFontColor(colors.SUBTITLE_FONT)
+          .setFontStyle('italic')
+          .setHorizontalAlignment('left')
+          .setVerticalAlignment('middle');
+      }
+
+      this.sheet.setRowHeight(row, 30);
+
+      return row + 1;
+    } catch (error) {
+      throw new Error(`DashboardService.renderMonthFilter: ${error.message}`);
+    }
+  }
+
+  /**
+   * Trả về Range CHÍNH XÁC của ô dropdown chọn tháng trên Dashboard, dựa
+   * trên vị trí cố định `DashboardConfig.FILTER_VALUE_POSITION`. Dùng bởi `onEdit()`
+   * để nhận diện ô này mà KHÔNG cần render lại toàn bộ Dashboard.
+   * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet - Sheet DASHBOARD.
+   * @returns {GoogleAppsScript.Spreadsheet.Range}
+   */
+  static getMonthFilterValueRange(sheet) {
+    const position = DashboardConfig.FILTER_VALUE_POSITION;
+    return sheet.getRange(position.row, position.col, 1, position.width);
   }
 
   /**
@@ -388,6 +466,7 @@ class DashboardService {
    * Orchestrator: render toàn bộ Dashboard (header, cards, bảng, top
    * performer) theo đúng thứ tự, tự tính vị trí dòng cho từng phần.
    * @param {string} yearMonth
+   * @param {string[]} availableMonths - Danh sách tháng hợp lệ cho dropdown filter.
    * @param {Object} summary - Kết quả ReportService.calculateSummary().
    * @param {Array} brandReport - Kết quả ReportService.calculateBrandReport().
    * @param {Array} memberReport - Kết quả ReportService.calculateMemberReport().
@@ -395,11 +474,11 @@ class DashboardService {
    * @param {Array} topBrands
    * @returns {number} Dòng bắt đầu của khu vực Chart (dùng cho ChartService).
    */
-  renderAll(yearMonth, summary, brandReport, memberReport, topMembers, topBrands) {
+  renderAll(yearMonth, availableMonths, summary, brandReport, memberReport, topMembers, topBrands) {
     try {
       this.clear();
       let row = DashboardConfig.LAYOUT.START_ROW;
-      row = this.renderHeader(yearMonth, row);
+      row = this.renderHeader(yearMonth, availableMonths, row);
       row = this.renderSummaryCards(summary, row);
       row = this.renderBrandTable(brandReport, row);
       row = this.renderMemberTable(memberReport, row);
