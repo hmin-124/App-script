@@ -45,7 +45,7 @@ minh bạch ngay trong `Config.gs` (không giấu trong logic service):
 | --- | --- | --- |
 | `Vị trí sử dụng` | Hằng số `Config.DEFAULT_VI_TRI_SU_DUNG` = `"Dev M5"` | Theo xác nhận trực tiếp của Admin — toàn bộ workbook thuộc team M5, không suy ra theo section trong tracker |
 | `Loại thanh toán` | Để trống (`MANUAL`) | Không có cột nguồn đáng tin cậy để phân biệt "Mua mới"/"Gia hạn" tự động — Admin tự chọn từ Dropdown sẵn có trên sheet sau khi tạo |
-| `Loại gia hạn` | Copy nguyên giá trị cột `Gia Hạn` trong tracker (`SOURCE`, không dịch) | Bản trước có dịch sang tiếng Việt (`Monthly` → `"Mua theo tháng"`...) nhưng KHÔNG khớp danh sách Dropdown thật trên sheet → bị Google Sheets từ chối (`data validation` error) |
+| `Loại gia hạn` | Dịch từ cột `Gia Hạn` (tiếng Anh) trong tracker qua `Config.RENEWAL_TYPE_MAP` (`Monthly` → `"Mua theo tháng"`, `Yearly` → `"Mua theo năm"`, `Quarterly` → `"Mua theo quý"`) | Dropdown chỉ nhận các giá trị tiếng Việt cụ thể trong danh sách Data Validation thật của sheet (xem đúng danh sách trong comment `RENEWAL_TYPE_MAP`) — copy nguyên tiếng Anh hoặc dịch sai từ ngữ đều bị Google Sheets từ chối. Giá trị không dịch được (ví dụ `"N/A"`) → để **trống** (không viết chữ bừa, vì Dropdown này `allowBlank = true`) |
 | `Thông tin thanh toán` | Hằng số `Config.DEFAULT_THONG_TIN_THANH_TOAN` = `"Thẻ visa"` | Giá trị này giống nhau ở MỌI dòng hiện có trong T7.2026/T8.2026 |
 | `Giá VNĐ`, `Chi phí thanh toán thực tế`, `Thanh toán vượt Dự Toán`, `Lý do`, `Link tải hóa đơn`, `ID BOKT`, `Tình trạng thanh toán` | Để trống (`MANUAL`) | Đây là các trường Finance/Admin điền SAU KHI duyệt/thanh toán — không có trong tracker vì bản chất là dữ liệu phát sinh sau |
 
@@ -68,10 +68,20 @@ sửa `RequestService`/`SheetGenerator`/`DataService`.
    **Fix**: `DataService._readAllRows()` giờ chỉ coi một dòng là tool thật khi
    cột **"Brand"** có giá trị — không phụ thuộc vào việc mọi cell có rỗng
    hay không.
-2. **Lỗi Data Validation ở cột "Loại gia hạn"**: bản trước tự dịch giá trị
-   `Gia Hạn` (Monthly/Yearly/Quarterly) sang tiếng Việt qua 1 bảng map không
-   khớp Dropdown thật trên sheet. **Fix**: copy nguyên giá trị gốc, không dịch
-   (xem bảng mapping ở trên).
+2. **Lỗi Data Validation ở cột "Loại gia hạn" (2 vòng fix)**:
+   - *Vòng 1*: bản đầu tự dịch giá trị `Gia Hạn` sang tiếng Việt qua 1 bảng
+     map, nhưng khi tracker có giá trị không nằm trong map (ví dụ `"N/A"`,
+     thấy thật trên dòng "Geelark") thì fallback ghi CHỮ `"N/A"` — không phải
+     giá trị Dropdown hợp lệ → bị từ chối.
+   - *Vòng 2*: tưởng nhầm là do "dịch sai", nên đổi sang copy NGUYÊN giá trị
+     gốc tiếng Anh (`Monthly`/`Yearly`) — nhưng Dropdown chỉ nhận tiếng Việt,
+     nên **mọi dòng** đều bị từ chối, nặng hơn trước.
+   - *Fix cuối cùng*: xác nhận đúng danh sách Dropdown THẬT (đọc trực tiếp từ
+     popup lỗi Google Sheets hiển thị: `Mua theo tháng, Mua theo năm, Mua
+     credit, Sử dụng trước, thanh toán sau, Theo số lượng users, Theo dung
+     lượng sd, Mua theo quý, Mua một lần`), dịch đúng theo danh sách này qua
+     `Config.RENEWAL_TYPE_MAP`, và đổi fallback từ `"N/A"` thành **chuỗi
+     rỗng** (Dropdown này cho phép để trống — `allowBlank = true`).
 
 ## 2. Kiến trúc đề xuất
 

@@ -167,6 +167,42 @@ class Config {
   }
 
   /**
+   * Translates the tracker's "Gia Hạn" cycle (English: Monthly/Yearly/
+   * Quarterly/...) into the request sheet's "Loại gia hạn" wording.
+   *
+   * IMPORTANT: these Vietnamese labels are copied VERBATIM from the sheet's
+   * own Data Validation error message (the exact list Google Sheets showed
+   * when rejecting an invalid entry): "Mua theo tháng, Mua theo năm, Mua
+   * credit, Sử dụng trước, thanh toán sau, Theo số lượng users, Theo dung
+   * lượng sd, Mua theo quý, Mua một lần". Do NOT guess new wording here -
+   * always confirm against the sheet's real dropdown list first (Data →
+   * Data validation on the "Loại gia hạn" column), otherwise Google Sheets
+   * will reject the value exactly like it did before this fix.
+   * @returns {Object<string,string>}
+   */
+  static get RENEWAL_TYPE_MAP() {
+    return {
+      Monthly: 'Mua theo tháng',
+      Yearly: 'Mua theo năm',
+      Quarterly: 'Mua theo quý',
+    };
+  }
+
+  /**
+   * Fallback for "Loại gia hạn" when the tracker's raw "Gia Hạn" value has
+   * no entry in RENEWAL_TYPE_MAP (e.g. it is empty, or literally "N/A" as
+   * seen on some real tracker rows). MUST be a value the sheet's dropdown
+   * accepts - every observed "Loại gia hạn"/"Loại thanh toán"/"Tình trạng
+   * thanh toán" validation rule on this sheet has `allowBlank = true`, so
+   * an empty string is always safe. Writing an arbitrary placeholder like
+   * "N/A" here previously caused a data-validation rejection.
+   * @returns {string}
+   */
+  static get DEFAULT_RENEWAL_TYPE() {
+    return '';
+  }
+
+  /**
    * Maps a Task_Management_Tracker section/group label (the divider rows
    * such as "M8 TECH", "Martech", "M6 TECH") to a "Vị trí sử dụng" value.
    * NOT currently used by COLUMN_MAPPING (see DEFAULT_VI_TRI_SU_DUNG) -
@@ -227,12 +263,19 @@ class Config {
       // in the tracker - left MANUAL so Admin picks it from the sheet's own
       // dropdown after generation, instead of the tool guessing wrong.
       { target: REQUEST.LOAI_THANH_TOAN, strategy: 'MANUAL' },
-      // Copied verbatim from the tracker's "Gia Hạn" column (no translation)
-      // - a previous version tried to translate Monthly/Yearly/Quarterly into
-      // Vietnamese wording that did NOT match this sheet's real dropdown
-      // list, which made Google Sheets reject the value (data validation
-      // error). Copying the raw value avoids guessing at wording entirely.
-      { target: REQUEST.LOAI_GIA_HAN, strategy: 'SOURCE', sourceHeader: TRACKER.GIA_HAN },
+      // Translated from the tracker's "Gia Hạn" column via RENEWAL_TYPE_MAP
+      // (English Monthly/Yearly/Quarterly -> the sheet's real Vietnamese
+      // dropdown wording). A raw/verbatim copy was tried previously and
+      // rejected by Google Sheets' Data Validation (the tracker stores
+      // English, the dropdown only accepts Vietnamese) - see
+      // RENEWAL_TYPE_MAP's comment for exactly which wording is valid.
+      {
+        target: REQUEST.LOAI_GIA_HAN,
+        strategy: 'TRANSFORM',
+        sourceHeader: TRACKER.GIA_HAN,
+        map: Config.RENEWAL_TYPE_MAP,
+        fallback: Config.DEFAULT_RENEWAL_TYPE,
+      },
       { target: REQUEST.GIA_USD, strategy: 'SOURCE', sourceHeader: TRACKER.TOTAL_COST_TERM },
       { target: REQUEST.GIA_VND, strategy: 'MANUAL' },
       { target: REQUEST.SO_LUONG, strategy: 'SOURCE', sourceHeader: TRACKER.SO_LUONG },
