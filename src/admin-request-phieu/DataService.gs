@@ -99,15 +99,28 @@ class DataService {
 
     const records = [];
     let currentSection = Config.DEFAULT_SECTION_POSITION;
+    let skippedEmptyRowCount = 0;
 
     values.forEach((rowValues) => {
-      const isBlankRow = rowValues.every((cellValue) => cellValue === '' || cellValue === null || cellValue === undefined);
-      if (isBlankRow) return;
-
       const brand = rowValues[brandColumnIndex - 1];
       const type = rowValues[typeColumnIndex - 1];
-      const isSectionDividerRow = Boolean(brand) && !type;
 
+      // A row is only treated as real tool data when its "Brand" cell is
+      // non-empty. This intentionally REPLACES a naive "every cell is
+      // blank" check: checkbox cells are always a boolean TRUE/FALSE, never
+      // truly empty, so a row can look "non-blank" purely because it still
+      // carries a checkbox value - even when every other cell (Brand, Type,
+      // cost, ...) is empty. That mismatch is exactly what let far-below,
+      // never-really-used rows (e.g. after a checkbox column was
+      // accidentally drag-filled way past the real data) be miscounted as
+      // "approved tools" with no actual data to write.
+      const hasBrand = Boolean(String(brand || '').trim());
+      if (!hasBrand) {
+        skippedEmptyRowCount++;
+        return;
+      }
+
+      const isSectionDividerRow = !type;
       if (isSectionDividerRow) {
         currentSection = String(brand).trim();
         return;
@@ -115,6 +128,10 @@ class DataService {
 
       records.push(new ToolRecord(rowValues, headerMap, currentSection));
     });
+
+    if (skippedEmptyRowCount > 0) {
+      AppLogger.info(`DataService._readAllRows: bỏ qua ${skippedEmptyRowCount} dòng trống (không có "Brand").`);
+    }
 
     return { records, headerMap };
   }
@@ -142,6 +159,11 @@ class DataService {
       AppLogger.info(
         `DataService.getApprovedTools: "${checkboxHeader}" -> ${approvedTools.length}/${records.length} tool được tick.`
       );
+      if (approvedTools.length > 0) {
+        const brandColumnName = Config.TRACKER_HEADERS.BRAND;
+        const approvedBrandList = approvedTools.map((tool) => tool.get(brandColumnName)).join(', ');
+        AppLogger.info(`DataService.getApprovedTools: danh sách tool được tick -> ${approvedBrandList}`);
+      }
       return approvedTools;
     } catch (error) {
       Utils.rethrow(error, 'DataService.getApprovedTools');

@@ -43,13 +43,35 @@ minh bạch ngay trong `Config.gs` (không giấu trong logic service):
 
 | Cột Request | Cách xử lý | Vì sao |
 | --- | --- | --- |
-| `Vị trí sử dụng` | Suy ra từ **section** trong tracker qua `Config.SECTION_POSITION_MAP` (`M6 TECH` → `Dev M6`, ...) | Không có cột riêng trong tracker, nhưng khớp đúng dữ liệu quan sát được (mọi tool thuộc M6 TECH đều có "Vị trí sử dụng" = "Dev M6") |
-| `Loại thanh toán` | Hằng số `Config.DEFAULT_LOAI_THANH_TOAN` = `"Gia hạn"` | Toàn bộ flow này xuất phát từ checkbox **"Request Gia hạn"**, nên theo định nghĩa là yêu cầu gia hạn |
+| `Vị trí sử dụng` | Hằng số `Config.DEFAULT_VI_TRI_SU_DUNG` = `"Dev M5"` | Theo xác nhận trực tiếp của Admin — toàn bộ workbook thuộc team M5, không suy ra theo section trong tracker |
+| `Loại thanh toán` | Để trống (`MANUAL`) | Không có cột nguồn đáng tin cậy để phân biệt "Mua mới"/"Gia hạn" tự động — Admin tự chọn từ Dropdown sẵn có trên sheet sau khi tạo |
+| `Loại gia hạn` | Copy nguyên giá trị cột `Gia Hạn` trong tracker (`SOURCE`, không dịch) | Bản trước có dịch sang tiếng Việt (`Monthly` → `"Mua theo tháng"`...) nhưng KHÔNG khớp danh sách Dropdown thật trên sheet → bị Google Sheets từ chối (`data validation` error) |
 | `Thông tin thanh toán` | Hằng số `Config.DEFAULT_THONG_TIN_THANH_TOAN` = `"Thẻ visa"` | Giá trị này giống nhau ở MỌI dòng hiện có trong T7.2026/T8.2026 |
 | `Giá VNĐ`, `Chi phí thanh toán thực tế`, `Thanh toán vượt Dự Toán`, `Lý do`, `Link tải hóa đơn`, `ID BOKT`, `Tình trạng thanh toán` | Để trống (`MANUAL`) | Đây là các trường Finance/Admin điền SAU KHI duyệt/thanh toán — không có trong tracker vì bản chất là dữ liệu phát sinh sau |
 
 Muốn đổi bất kỳ quy tắc nào ở trên, chỉ cần sửa **`Config.gs`** — không cần
 sửa `RequestService`/`SheetGenerator`/`DataService`.
+
+> `Config.SECTION_POSITION_MAP` (map section → "Vị trí sử dụng") vẫn được
+> giữ lại trong code (không dùng trong `COLUMN_MAPPING` hiện tại) để dễ dùng
+> lại nếu nghiệp vụ thay đổi sau này — `ToolRecord.section` vẫn được theo dõi
+> cho từng dòng.
+
+### Bug đã fix (báo cáo ngày 21/07/2026)
+
+1. **Đếm sai số Tool** ("Tổng số Tool: 21" nhưng chỉ 4 dòng có data thật):
+   nguyên nhân là hàm bỏ-qua-dòng-trống cũ kiểm tra "mọi cell đều rỗng", nhưng
+   **ô checkbox trong Google Sheets luôn có giá trị boolean (`TRUE`/`FALSE`),
+   không bao giờ thực sự rỗng** — nên nếu vùng checkbox bị kéo dài xuống quá
+   số dòng dữ liệu thật (rất dễ xảy ra khi kéo-thả checkbox), các dòng trống
+   phía dưới vẫn bị tính là "tool hợp lệ" nếu vô tình có checkbox = `TRUE`.
+   **Fix**: `DataService._readAllRows()` giờ chỉ coi một dòng là tool thật khi
+   cột **"Brand"** có giá trị — không phụ thuộc vào việc mọi cell có rỗng
+   hay không.
+2. **Lỗi Data Validation ở cột "Loại gia hạn"**: bản trước tự dịch giá trị
+   `Gia Hạn` (Monthly/Yearly/Quarterly) sang tiếng Việt qua 1 bảng map không
+   khớp Dropdown thật trên sheet. **Fix**: copy nguyên giá trị gốc, không dịch
+   (xem bảng mapping ở trên).
 
 ## 2. Kiến trúc đề xuất
 
