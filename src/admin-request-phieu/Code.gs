@@ -12,7 +12,7 @@
  *   - Generate BOKT              -> new BoktService.gs + onGenerateBoktClick()
  *   - Generate Email             -> new EmailService.gs + onSendEmailClick()
  *   - Generate Telegram Message  -> new TelegramService.gs + onSendTelegramClick()
- *   - Generate Approval Message  -> new ApprovalService.gs + onSendApprovalClick()
+ *   - Generate Approval Message  -> DONE, see MessageService.gs below.
  *   - Export PDF / Export Excel  -> new ExportService.gs + onExportClick()
  *   - Archive Sheet              -> new ArchiveService.gs + onArchiveSheetClick()
  *   - Auto gửi Gmail             -> new GmailService.gs + onSendGmailClick()
@@ -40,6 +40,53 @@ function onGenerateRequestSheetClick() {
     Utils.showAlert('Generate Request thành công.', `Tổng số Tool: ${result.toolCount}\n\nSheet: ${result.sheetName}`);
   } catch (error) {
     AppLogger.error(`onGenerateRequestSheetClick: ${error.message}`);
+
+    if (error instanceof UserFacingError) {
+      Utils.showAlert('Thông báo', error.message);
+    } else {
+      Utils.showAlert('Đã xảy ra lỗi', error.message);
+    }
+  }
+}
+
+/**
+ * Menu handler for "Admin Tools -> Tạo tin nhắn Lead duyệt". Reads the
+ * already-generated (and possibly Admin-edited) request sheet and shows a
+ * copyable message grouped by Gia hạn / Mua mới / Topup Credit, per
+ * MessageService.buildLeadApprovalMessage().
+ */
+function onCreateLeadMessageClick() {
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const messageService = new MessageService(spreadsheet);
+    const result = messageService.buildLeadApprovalMessage();
+
+    Utils.showMessageDialog(`Tin nhắn Lead duyệt - ${result.sheetName}`, result.message);
+  } catch (error) {
+    AppLogger.error(`onCreateLeadMessageClick: ${error.message}`);
+
+    if (error instanceof UserFacingError) {
+      Utils.showAlert('Thông báo', error.message);
+    } else {
+      Utils.showAlert('Đã xảy ra lỗi', error.message);
+    }
+  }
+}
+
+/**
+ * Menu handler for "Admin Tools -> Tạo tin nhắn Head duyệt". Reads the same
+ * request sheet as the Lead message, but shows a flat list per
+ * MessageService.buildHeadApprovalMessage().
+ */
+function onCreateHeadMessageClick() {
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const messageService = new MessageService(spreadsheet);
+    const result = messageService.buildHeadApprovalMessage();
+
+    Utils.showMessageDialog(`Tin nhắn Head duyệt - ${result.sheetName}`, result.message);
+  } catch (error) {
+    AppLogger.error(`onCreateHeadMessageClick: ${error.message}`);
 
     if (error instanceof UserFacingError) {
       Utils.showAlert('Thông báo', error.message);

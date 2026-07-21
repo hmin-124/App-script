@@ -189,6 +189,71 @@ class Utils {
   }
 
   // ---------------------------------------------------------------------
+  // Request-sheet data-range discovery (shared by SheetGenerator, which
+  // WRITES the request sheet, and MessageService, which only READS it -
+  // both must agree on exactly the same rows, so the logic lives here once).
+  // ---------------------------------------------------------------------
+
+  /**
+   * Locates the TOTAL row inside an ALREADY-POPULATED request sheet by
+   * scanning the "Tên tool" column for the literal label
+   * Config.TOTAL_ROW_LABEL.
+   * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+   * @param {Object<string, number>} headerMap - Request-sheet header map.
+   * @param {number} headerRowIndex
+   * @returns {number} 1-based row index.
+   */
+  static findTotalRowIndex(sheet, headerMap, headerRowIndex) {
+    try {
+      const nameColumnIndex = Utils.findColumn(headerMap, Config.REQUEST_HEADERS.TEN_TOOL);
+      const lastRow = sheet.getLastRow();
+      const searchHeight = Math.max(lastRow - headerRowIndex, 0);
+      if (searchHeight === 0) {
+        throw new UserFacingError(`Không tìm thấy dòng "${Config.TOTAL_ROW_LABEL}" trong sheet "${sheet.getName()}".`);
+      }
+
+      const nameColumnValues = sheet.getRange(headerRowIndex + 1, nameColumnIndex, searchHeight, 1).getValues();
+      for (let offset = 0; offset < nameColumnValues.length; offset++) {
+        const cellText = String(nameColumnValues[offset][0] || '').trim().toUpperCase();
+        if (cellText === Config.TOTAL_ROW_LABEL) {
+          return headerRowIndex + 1 + offset;
+        }
+      }
+
+      throw new UserFacingError(`Không tìm thấy dòng "${Config.TOTAL_ROW_LABEL}" trong sheet "${sheet.getName()}".`);
+    } catch (error) {
+      Utils.rethrow(error, 'Utils.findTotalRowIndex');
+    }
+  }
+
+  /**
+   * Reads the data-range boundaries directly from the TOTAL row's own SUM
+   * formula in the "Giá USD" column (e.g. "=sum(H3:H11)" -> {startRow: 3,
+   * endRow: 11}), so callers always match exactly what the template author
+   * defined for that specific month - no hardcoded row numbers anywhere.
+   * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+   * @param {Object<string, number>} headerMap - Request-sheet header map.
+   * @param {number} totalRowIndex
+   * @returns {{startRow: number, endRow: number}}
+   */
+  static findDataRangeFromTotalFormula(sheet, headerMap, totalRowIndex) {
+    try {
+      const priceColumnIndex = Utils.findColumn(headerMap, Config.REQUEST_HEADERS.GIA_USD);
+      const formula = sheet.getRange(totalRowIndex, priceColumnIndex).getFormula();
+      const match = formula.match(/[A-Za-z]+(\d+):[A-Za-z]+(\d+)/);
+
+      if (!match) {
+        throw new UserFacingError(
+          `Không đọc được vùng dữ liệu từ công thức của dòng "${Config.TOTAL_ROW_LABEL}" ("${formula}"). Vui lòng kiểm tra lại Template.`
+        );
+      }
+      return { startRow: Number(match[1]), endRow: Number(match[2]) };
+    } catch (error) {
+      Utils.rethrow(error, 'Utils.findDataRangeFromTotalFormula');
+    }
+  }
+
+  // ---------------------------------------------------------------------
   // Template copying
   // ---------------------------------------------------------------------
 
@@ -275,6 +340,25 @@ class Utils {
     }
   }
 
+  /**
+   * Formats a USD amount for chat messages - thousand separators, but no
+   * forced trailing ".00" (matches the sample messages: "$497", "$220",
+   * not "$497.00"), while still showing up to 2 decimals when the amount
+   * actually has cents (e.g. "$20.9").
+   * @param {number} amount
+   * @returns {string} e.g. "$1,283.5".
+   */
+  static formatUsdAmount(amount) {
+    try {
+      const numeric = Number(amount) || 0;
+      const formatted = numeric.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+      return `$${formatted}`;
+    } catch (error) {
+      AppLogger.warning(`Utils.formatUsdAmount: ${error.message}`);
+      return `$${amount}`;
+    }
+  }
+
   // ---------------------------------------------------------------------
   // UI helpers
   // ---------------------------------------------------------------------
@@ -321,6 +405,73 @@ class Utils {
       AppLogger.warning(`Utils.showConfirm: ${error.message}`);
       return false;
     }
+  }
+
+  /**
+   * Shows a modal dialog with the generated message inside a read-only,
+   * selectable/copyable textarea plus a one-click "Copy" button. Used by
+   * MessageService's Lead/Head approval-message generators - `ui.alert()`
+   * cannot be used here because it does not let the admin easily
+   * select/copy a long, multi-line message.
+   * @param {string} title
+   * @param {string} message
+   */
+  static showMessageDialog(title, message) {
+    try {
+      const escapedMessage = Utils.escapeHtml(message);
+      const html = `
+        <style>
+          body { font-family: Arial, sans-serif; margin: 0; padding: 12px 16px 16px; }
+          textarea {
+            width: 100%; height: 380px; box-sizing: border-box; font-family: 'Courier New', monospace;
+            font-size: 13px; padding: 8px; border: 1px solid #ccc; border-radius: 4px; resize: vertical;
+          }
+          .actions { margin-top: 10px; display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+          #copyStatus { color: #188038; font-size: 12px; visibility: hidden; }
+          button {
+            background: #1a73e8; color: #fff; border: none; padding: 8px 16px; border-radius: 4px;
+            cursor: pointer; font-size: 13px;
+          }
+          button:hover { background: #1558b3; }
+        </style>
+        <textarea id="messageBox" readonly>${escapedMessage}</textarea>
+        <div class="actions">
+          <span id="copyStatus">Đã copy!</span>
+          <button onclick="copyMessage()">📋 Copy nội dung</button>
+        </div>
+        <script>
+          function copyMessage() {
+            const box = document.getElementById('messageBox');
+            box.focus();
+            box.select();
+            document.execCommand('copy');
+            const status = document.getElementById('copyStatus');
+            status.style.visibility = 'visible';
+            setTimeout(function () { status.style.visibility = 'hidden'; }, 2000);
+          }
+        </script>
+      `;
+      const output = HtmlService.createHtmlOutput(html).setWidth(520).setHeight(500);
+      SpreadsheetApp.getUi().showModalDialog(output, title);
+    } catch (error) {
+      AppLogger.warning(`Utils.showMessageDialog: ${error.message}`);
+    }
+  }
+
+  /**
+   * Escapes text for safe embedding inside an HtmlService template (used
+   * only by showMessageDialog - every OTHER dialog in this project uses
+   * ui.alert(), which needs no escaping).
+   * @param {string} text
+   * @returns {string}
+   */
+  static escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
   // ---------------------------------------------------------------------

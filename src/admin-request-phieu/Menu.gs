@@ -20,6 +20,8 @@ function onOpen() {
     SpreadsheetApp.getUi()
       .createMenu(Config.MENU_NAME)
       .addItem(Config.MENU_ITEM_GENERATE, 'onGenerateRequestSheetClick')
+      .addItem(Config.MENU_ITEM_LEAD_MESSAGE, 'onCreateLeadMessageClick')
+      .addItem(Config.MENU_ITEM_HEAD_MESSAGE, 'onCreateHeadMessageClick')
       // Future menu items can be appended here, e.g.:
       // .addItem('Generate BOKT', 'onGenerateBoktClick')
       // .addItem('Archive Sheet', 'onArchiveSheetClick')

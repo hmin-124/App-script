@@ -91,9 +91,10 @@ Utils.gs            - Header lookup, copy template, format ngày/tiền, UI help
 DataService.gs      - Đọc Task_Management_Tracker, lọc tool được tick
 TemplateService.gs  - Tìm & copy sheet mẫu "tháng gần nhất"
 SheetGenerator.gs   - Ghi dữ liệu vào sheet mới (tự tìm vùng ghi từ công thức TOTAL)
-RequestService.gs   - Orchestrator: nối toàn bộ luồng nghiệp vụ
-Menu.gs             - onOpen() - tạo menu "Admin Tools"
-Code.gs             - Global handler cho menu (mỏng, chỉ gọi RequestService + hiển thị Dialog)
+RequestService.gs   - Orchestrator: nối toàn bộ luồng nghiệp vụ Generate Request Sheet
+MessageService.gs   - Đọc sheet Request đã tạo/đã sửa -> build tin nhắn Lead/Head duyệt
+Menu.gs             - onOpen() - tạo menu "🛠️ Admin Tools"
+Code.gs             - Global handler cho menu (mỏng, chỉ gọi *Service + hiển thị Dialog)
 ```
 
 Nguyên tắc SOLID áp dụng:
@@ -117,7 +118,8 @@ Nguyên tắc SOLID áp dụng:
 | `DataService` | DataService.gs | Đọc & lọc tool được tick |
 | `TemplateService` | TemplateService.gs | Tìm & copy sheet mẫu |
 | `SheetGenerator` | SheetGenerator.gs | Ghi dữ liệu vào sheet mới |
-| `RequestService` | RequestService.gs | Điều phối toàn bộ luồng |
+| `RequestService` | RequestService.gs | Điều phối toàn bộ luồng Generate Request Sheet |
+| `MessageService` | MessageService.gs | Đọc sheet Request đã generate/đã sửa, build tin nhắn Lead/Head duyệt |
 
 ## 4. Luồng xử lý (Generate Request Sheet)
 
@@ -147,22 +149,71 @@ onGenerateRequestSheetClick()  [Code.gs]
   └─ Utils.showAlert('Generate Request thành công.', 'Tổng số Tool: N\n\nSheet: T9.2026')
 ```
 
-## 5. Cài đặt
+## 5. Luồng xử lý (Tạo tin nhắn Lead/Head duyệt)
+
+`MessageService` KHÔNG đọc lại tracker — nó đọc trực tiếp sheet Request
+**đã được Generate và Admin đã chỉnh sửa xong** (điền `Loại thanh toán`, `ID
+BOKT`, ...), dùng đúng vùng dữ liệu mà `SheetGenerator` đã ghi (suy ra lại từ
+công thức SUM ở dòng TOTAL — `Utils.findTotalRowIndex`/
+`findDataRangeFromTotalFormula`, code CHUNG với `SheetGenerator` để 2 class
+này luôn đồng nhất "dòng nào là dữ liệu thật").
+
+```
+onCreateLeadMessageClick() / onCreateHeadMessageClick()  [Code.gs]
+  └─ MessageService.buildLeadApprovalMessage() / buildHeadApprovalMessage()
+        1. _getRequestSheet()
+             - Ưu tiên sheet ĐANG MỞ nếu tên khớp "T{n}.{yyyy}"
+             - Không thì tự tìm sheet Request MỚI NHẤT trong toàn bộ file
+             - throw UserFacingError nếu không có sheet Request nào
+        2. _readApprovalRows() - đọc đúng vùng dữ liệu (giống SheetGenerator),
+           bỏ qua các dòng slot còn trống (chưa dùng tới tháng này)
+        3a. [Lead] _groupToolsForLeadMessage() - nhóm theo "Loại thanh toán"
+            (Gia hạn/Mua mới/Topup Credit - Config.PAYMENT_CATEGORY_ORDER),
+            "Gia hạn"/"Mua mới" nhóm nhỏ tiếp theo "Loại gia hạn"
+        3b. [Head] Danh sách phẳng (không nhóm) - Head chỉ cần ID phiếu/BOKT/
+            số tiền để duyệt thanh toán
+        4. Build text theo mẫu Admin cung cấp, cộng tổng "Giá USD" mọi dòng
+  └─ Utils.showMessageDialog(title, message)  - dialog có Textarea + nút "Copy"
+```
+
+**Quy ước dữ liệu quan trọng** (đọc kỹ trước khi dùng thật):
+
+- **"ID phiếu"** trong cả 2 mẫu tin nhắn được lấy từ cột **"ID BOKT"** của
+  sheet Request — đây là cột GẦN NHẤT với khái niệm "mã phiếu" hiện có
+  trong 21 cột của Template; nếu công ty có ý nghĩa khác cho "ID phiếu"
+  (không phải "ID BOKT"), chỉ cần đổi `REQUEST.ID_BOKT` thành cột đúng trong
+  `MessageService._readApprovalRows()` — không phải sửa gì khác.
+- **"Link BOKT"** trong tin Head KHÔNG đọc từ sheet — luôn in ra placeholder
+  cố định `Config.MESSAGE_BOKT_LINK_PLACEHOLDER` ("Admin tự copy link") vì
+  sheet chưa có cột lưu link BOKT lúc này; Admin dán link thật vào ngay
+  trước khi gửi.
+- Ghi chú trong ngoặc sau "Chi phí" (ví dụ "(giá sau khi hết khuyến mãi)")
+  được lấy từ cột **"Lý do"** nếu có nội dung — để trống thì không hiện.
+- "TỔNG CẦN THANH TOÁN" luôn là tổng cột "Giá USD" của **toàn bộ** tool đã
+  điền (cả 2 tin nhắn dùng cùng 1 tổng, kể cả Topup Credit).
+
+## 6. Cài đặt
 
 1. Mở Google Sheet **M5 - DevSEO - Software Info** → **Extensions → Apps Script**.
-2. Tạo 8 file Script đúng tên: `Config`, `Utils`, `DataService`,
-   `TemplateService`, `SheetGenerator`, `RequestService`, `Menu`, `Code`.
-   Copy nội dung tương ứng từ thư mục này vào từng file.
+2. Tạo 9 file Script đúng tên: `Config`, `Utils`, `DataService`,
+   `TemplateService`, `SheetGenerator`, `RequestService`, `MessageService`,
+   `Menu`, `Code`. Copy nội dung tương ứng từ thư mục này vào từng file.
 3. Bật hiển thị manifest (**Project Settings ⚙️ → Show 'appsscript.json'**),
    paste nội dung `appsscript.json`.
 4. Lưu (`Ctrl+S`), tải lại Google Sheet.
-5. Menu **🛠️ Admin Tools → 📄 Generate Request Sheet** xuất hiện.
+5. Menu **🛠️ Admin Tools** xuất hiện với 3 mục: **📄 Generate Request
+   Sheet**, **💬 Tạo tin nhắn Lead duyệt**, **📨 Tạo tin nhắn Head duyệt**.
 6. Trong `Task_Management_Tracker`, tick các checkbox ở cột
    `Request Gia hạn T{tháng kế tiếp}` cho tool cần tạo Request.
 7. Chạy **🛠️ Admin Tools → 📄 Generate Request Sheet**. Lần đầu chạy sẽ có popup
    xác thực quyền — Review permissions → Advanced → Go to [project] (unsafe) → Allow.
+8. Mở sheet Request vừa tạo, điền/sửa các cột `MANUAL` (`Loại thanh toán`,
+   `ID BOKT`, ...) như bình thường.
+9. Vẫn đang ở tab sheet Request đó, chạy **🛠️ Admin Tools → 💬 Tạo tin nhắn
+   Lead duyệt** (hoặc **📨 Tạo tin nhắn Head duyệt**) → dialog hiện tin nhắn,
+   bấm **📋 Copy nội dung** rồi dán vào chat.
 
-## 6. Hiệu năng & Logging
+## 7. Hiệu năng & Logging
 
 - Đọc dữ liệu: đúng **1 lần** `getValues()` cho toàn bộ tracker.
 - Ghi dữ liệu: đúng **1 lần** `setValues()` cho toàn bộ các dòng mới — không
@@ -171,7 +222,7 @@ onGenerateRequestSheetClick()  [Code.gs]
   copy template, mở rộng vùng ghi, ghi dữ liệu) — tắt hoàn toàn bằng
   `Config.ENABLE_LOGGING = false` nếu cần.
 
-## 7. Kiểm thử
+## 8. Kiểm thử
 
 Do không thể chạy trực tiếp trên Google Apps Script trong môi trường phát
 triển này, toàn bộ luồng đã được mô phỏng bằng Node.js (`vm` module chạy
@@ -195,13 +246,29 @@ upload** (`Task_Management_Tracker`, `T7.2026`, `T8.2026`):
   "Không tìm thấy Template.".
 - **Từ chối ghi đè** khi sheet đã tồn tại → trả về `null`, không tạo/sửa gì.
 
-Toàn bộ 8 file `.gs` pass `node --check`.
+**`MessageService` (tin nhắn Lead/Head duyệt)** — cũng mô phỏng bằng Node.js
+`vm`, dữ liệu mock theo đúng format mẫu Admin cung cấp (Mosaiker/Similarweb
+(Pro)/Claude Max/N8N/Cursor với `Gia hạn`/`Mua mới`/`Topup Credit`):
 
-## 8. Mở rộng (roadmap, xem chi tiết trong `Code.gs`)
+- **Nhóm đúng theo mẫu**: sinh đúng 4 nhóm `📌 Loại: ...` (Mua theo tháng -
+  Gia hạn / Mua theo năm - Gia hạn / Mua theo tháng - Mua mới / Mua topup
+  credit), số thứ tự (`1.`, `2.`...) reset lại ở đầu mỗi nhóm, ghi chú "Lý
+  do" được nối sau "Chi phí", tổng tiền cuối tin nhắn cộng đúng cả 5 tool.
+- **Bỏ qua slot còn trống**: các dòng chưa được Generate/Admin chưa điền
+  (`Tên tool` rỗng) trong vùng dữ liệu suy ra từ công thức TOTAL không xuất
+  hiện trong tin nhắn.
+- **Tin Head là danh sách phẳng** nhưng vẫn cộng đúng tổng tiền giống tin Lead.
+- **Không có sheet Request nào** (`T{n}.{yyyy}`) trong toàn bộ file →
+  `UserFacingError` yêu cầu mở đúng sheet.
+- **Sheet Request tồn tại nhưng chưa có Tool nào** (mọi slot còn trống) →
+  `UserFacingError` báo rõ tên sheet.
+
+Toàn bộ 9 file `.gs` pass `node --check`.
+
+## 9. Mở rộng (roadmap, xem chi tiết trong `Code.gs`)
 
 Thêm tính năng mới (Generate BOKT, Generate Email, Generate Telegram Message,
-Generate Approval Message, Export PDF/Excel, Archive Sheet, Auto gửi Gmail)
-chỉ cần:
+Export PDF/Excel, Archive Sheet, Auto gửi Gmail) chỉ cần:
 1. Tạo 1 file `.gs` mới chứa 1 class Service mới (constructor nhận
    `spreadsheet`, giống pattern của `RequestService`).
 2. Thêm 1 hàm handler global mỏng trong `Code.gs`.

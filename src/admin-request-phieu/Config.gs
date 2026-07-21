@@ -56,6 +56,16 @@ class Config {
     return '📄 Generate Request Sheet';
   }
 
+  /** @returns {string} Menu item label that generates the "Lead duyệt" approval message. */
+  static get MENU_ITEM_LEAD_MESSAGE() {
+    return '💬 Tạo tin nhắn Lead duyệt';
+  }
+
+  /** @returns {string} Menu item label that generates the "Head duyệt" approval message. */
+  static get MENU_ITEM_HEAD_MESSAGE() {
+    return '📨 Tạo tin nhắn Head duyệt';
+  }
+
   // ---------------------------------------------------------------------
   // Logging
   // ---------------------------------------------------------------------
@@ -295,5 +305,67 @@ class Config {
       { target: REQUEST.TINH_TRANG_THANH_TOAN, strategy: 'MANUAL' },
       { target: REQUEST.NGAY_GIA_HAN, strategy: 'SOURCE', sourceHeader: TRACKER.LICH_GIA_HAN },
     ];
+  }
+
+  // ---------------------------------------------------------------------
+  // Approval messages (Lead duyệt / Head duyệt) - read from an ALREADY
+  // generated-and-edited request sheet, never written back to it.
+  // ---------------------------------------------------------------------
+
+  /**
+   * Team label used in both message subjects ("Chi phí mua tool cho team
+   * {MESSAGE_TEAM_LABEL} - File Tools request - T{n}/{yyyy}"). Change here
+   * if this workbook is ever reused for a different team.
+   * @returns {string}
+   */
+  static get MESSAGE_TEAM_LABEL() {
+    return 'Tech M5';
+  }
+
+  /**
+   * Exact "Loại thanh toán" values (must match the request sheet's own
+   * dropdown for that column) that MessageService groups tools by when
+   * building the "Lead duyệt" message. Any tool whose "Loại thanh toán" is
+   * empty or NOT one of these three still gets its own group in the
+   * message (see MessageService) - it is never silently dropped.
+   * @returns {{GIA_HAN:string, MUA_MOI:string, TOPUP_CREDIT:string}}
+   */
+  static get PAYMENT_CATEGORY() {
+    return {
+      GIA_HAN: 'Gia hạn',
+      MUA_MOI: 'Mua mới',
+      TOPUP_CREDIT: 'Topup Credit',
+    };
+  }
+
+  /**
+   * Display order of the 3 known payment categories inside the "Lead
+   * duyệt" message (per Admin's sample: Gia hạn -> Mua mới -> Topup
+   * Credit), regardless of the order the rows happen to be in on the sheet.
+   * @returns {string[]}
+   */
+  static get PAYMENT_CATEGORY_ORDER() {
+    return [Config.PAYMENT_CATEGORY.GIA_HAN, Config.PAYMENT_CATEGORY.MUA_MOI, Config.PAYMENT_CATEGORY.TOPUP_CREDIT];
+  }
+
+  /**
+   * Placeholder line Admin manually replaces with the real BOKT link, in
+   * every tool entry of the "Head duyệt" message - the request sheet has
+   * no BOKT-link column filled in at that point, this is expected to be
+   * pasted by hand right before sending.
+   * @returns {string}
+   */
+  static get MESSAGE_BOKT_LINK_PLACEHOLDER() {
+    return 'Admin tự copy link';
+  }
+
+  /** @returns {string} Closing lines appended to the end of the "Lead duyệt" message. */
+  static get MESSAGE_LEAD_CLOSING() {
+    return 'Nhờ anh xác nhận duyệt phiếu tool.\nE cám ơn ạ!';
+  }
+
+  /** @returns {string} Closing lines appended to the end of the "Head duyệt" message. */
+  static get MESSAGE_HEAD_CLOSING() {
+    return 'Nhờ anh duyệt giúp em các phiếu tool trên. Các phiếu này đã được Lead phê duyệt ạ!\nCám ơn anh!';
   }
 }

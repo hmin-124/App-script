@@ -36,49 +36,23 @@ class SheetGenerator {
   }
 
   /**
-   * Locates the TOTAL row by scanning the "Tên tool" column for the literal
-   * label Config.TOTAL_ROW_LABEL.
+   * Locates the TOTAL row and reads its data-range from the SUM formula.
+   * Delegates to Utils - the exact same logic MessageService uses to READ
+   * this sheet later, so both classes always agree on which rows are data.
    * @returns {number} 1-based row index.
    * @private
    */
   _findTotalRowIndex() {
-    const nameColumnIndex = Utils.findColumn(this.headerMap, Config.REQUEST_HEADERS.TEN_TOOL);
-    const lastRow = this.sheet.getLastRow();
-    const searchHeight = Math.max(lastRow - this.headerRowIndex, 0);
-    if (searchHeight === 0) {
-      throw new UserFacingError(`Không tìm thấy dòng "${Config.TOTAL_ROW_LABEL}" trong sheet "${this.sheet.getName()}".`);
-    }
-
-    const nameColumnValues = this.sheet.getRange(this.headerRowIndex + 1, nameColumnIndex, searchHeight, 1).getValues();
-    for (let offset = 0; offset < nameColumnValues.length; offset++) {
-      const cellText = String(nameColumnValues[offset][0] || '').trim().toUpperCase();
-      if (cellText === Config.TOTAL_ROW_LABEL) {
-        return this.headerRowIndex + 1 + offset;
-      }
-    }
-
-    throw new UserFacingError(`Không tìm thấy dòng "${Config.TOTAL_ROW_LABEL}" trong sheet "${this.sheet.getName()}".`);
+    return Utils.findTotalRowIndex(this.sheet, this.headerMap, this.headerRowIndex);
   }
 
   /**
-   * Reads the data-range boundaries directly from the TOTAL row's own SUM
-   * formula in the "Giá USD" column (e.g. "=sum(H3:H11)" -> {startRow: 3,
-   * endRow: 11}), so the writable area always matches the template exactly.
    * @param {number} totalRowIndex
    * @returns {{startRow: number, endRow: number}}
    * @private
    */
   _findDataRange(totalRowIndex) {
-    const priceColumnIndex = Utils.findColumn(this.headerMap, Config.REQUEST_HEADERS.GIA_USD);
-    const formula = this.sheet.getRange(totalRowIndex, priceColumnIndex).getFormula();
-    const match = formula.match(/[A-Za-z]+(\d+):[A-Za-z]+(\d+)/);
-
-    if (!match) {
-      throw new UserFacingError(
-        `Không đọc được vùng dữ liệu từ công thức của dòng "${Config.TOTAL_ROW_LABEL}" ("${formula}"). Vui lòng kiểm tra lại Template.`
-      );
-    }
-    return { startRow: Number(match[1]), endRow: Number(match[2]) };
+    return Utils.findDataRangeFromTotalFormula(this.sheet, this.headerMap, totalRowIndex);
   }
 
   /**
