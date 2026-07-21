@@ -227,10 +227,14 @@ onCreateLeadMessageClick() / onCreateHeadMessageClick()  [Code.gs]
   trong 21 cột của Template; nếu công ty có ý nghĩa khác cho "ID phiếu"
   (không phải "ID BOKT"), chỉ cần đổi `REQUEST.ID_BOKT` thành cột đúng trong
   `MessageService._readApprovalRows()` — không phải sửa gì khác.
-- **"Link BOKT"** trong tin Head KHÔNG đọc từ sheet — luôn in ra placeholder
-  cố định `Config.MESSAGE_BOKT_LINK_PLACEHOLDER` ("Admin tự copy link") vì
-  sheet chưa có cột lưu link BOKT lúc này; Admin dán link thật vào ngay
-  trước khi gửi.
+- **"Link BOKT"** trong tin Head KHÔNG đọc từ sheet — luôn để TRỐNG
+  (`Config.MESSAGE_BOKT_LINK_PLACEHOLDER = ''`, theo yêu cầu của Admin) vì
+  sheet chưa có cột lưu link BOKT lúc này; Admin gõ/dán link thật trực tiếp
+  vào ngay sau "Link BOKT:" của từng dòng, trước khi gửi.
+- Tin **Head duyệt** là danh sách **có số thứ tự** (`1.`, `2.`, ...), mỗi
+  tool gồm đúng 2 dòng liên tiếp KHÔNG có dòng trống ở giữa các tool
+  (`N. ID phiếu: ... - Tên tool - Giá` rồi `Link BOKT: `) — chỉ có 1 dòng
+  trống duy nhất, ngay trước dòng `=> TỔNG CẦN THANH TOÁN`.
 - Ghi chú trong ngoặc sau "Chi phí" (ví dụ "(giá sau khi hết khuyến mãi)")
   được lấy từ cột **"Lý do"** nếu có nội dung — để trống thì không hiện.
 - "TỔNG CẦN THANH TOÁN" luôn là tổng cột "Giá USD" của **toàn bộ** tool đã
@@ -311,7 +315,9 @@ trên) — mọi phép giãn công thức trong test phải đến từ chính
 - **Bỏ qua slot còn trống**: các dòng chưa được Generate/Admin chưa điền
   (`Tên tool` rỗng) trong vùng dữ liệu suy ra từ công thức TOTAL không xuất
   hiện trong tin nhắn.
-- **Tin Head là danh sách phẳng** nhưng vẫn cộng đúng tổng tiền giống tin Lead.
+- **Tin Head là danh sách phẳng có số thứ tự** (`1.`, `2.`, ...), KHÔNG có
+  dòng trống giữa các tool, dòng "Link BOKT:" luôn để trống (không còn chữ
+  "Admin tự copy link"), vẫn cộng đúng tổng tiền giống tin Lead.
 - **Không có sheet Request nào** (`T{n}.{yyyy}`) trong toàn bộ file →
   `UserFacingError` yêu cầu mở đúng sheet.
 - **Sheet Request tồn tại nhưng chưa có Tool nào** (mọi slot còn trống) →

@@ -349,14 +349,16 @@ class Config {
   }
 
   /**
-   * Placeholder line Admin manually replaces with the real BOKT link, in
-   * every tool entry of the "Head duyệt" message - the request sheet has
-   * no BOKT-link column filled in at that point, this is expected to be
-   * pasted by hand right before sending.
+   * Value written right after "Link BOKT:" in every tool entry of the
+   * "Head duyệt" message. Left BLANK on purpose (per Admin's explicit
+   * request) - the request sheet has no BOKT-link column filled in at that
+   * point, so Admin types/pastes the real link directly onto that line by
+   * hand before sending; change this constant if a fixed placeholder text
+   * is ever wanted again instead.
    * @returns {string}
    */
   static get MESSAGE_BOKT_LINK_PLACEHOLDER() {
-    return 'Admin tự copy link';
+    return '';
   }
 
   /** @returns {string} Closing lines appended to the end of the "Lead duyệt" message. */

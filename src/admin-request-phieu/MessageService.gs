@@ -226,9 +226,12 @@ class MessageService {
   }
 
   /**
-   * Builds the "Head duyệt" approval message - a flat list of every tool
-   * (no category grouping), since Head only needs the ID phiếu / BOKT link
-   * / amount to approve payment.
+   * Builds the "Head duyệt" approval message - a flat, NUMBERED list of
+   * every tool (no category grouping), since Head only needs the ID phiếu
+   * / BOKT link / amount to approve payment. Each entry is exactly 2 lines
+   * ("N. ID phiếu: ... - Tên tool - Giá" then "Link BOKT: ") with NO blank
+   * line between entries - Admin fills the real BOKT link in by hand right
+   * after "Link BOKT:" for each one before sending.
    * @returns {{sheetName:string, message:string, toolCount:number, totalUsd:number}}
    */
   buildHeadApprovalMessage() {
@@ -245,12 +248,12 @@ class MessageService {
       lines.push(`📌 Chi phí mua tool cho team ${Config.MESSAGE_TEAM_LABEL} - File Tools request - T${month}/${year}`);
       lines.push('');
 
-      tools.forEach((tool) => {
-        lines.push(`- ID phiếu: ${tool.idPhieu} - ${tool.tenTool} - ${Utils.formatUsdAmount(tool.giaUsd)}`);
+      tools.forEach((tool, index) => {
+        lines.push(`${index + 1}. ID phiếu: ${tool.idPhieu} - ${tool.tenTool} - ${Utils.formatUsdAmount(tool.giaUsd)}`);
         lines.push(`Link BOKT: ${Config.MESSAGE_BOKT_LINK_PLACEHOLDER}`);
-        lines.push('');
       });
 
+      lines.push('');
       lines.push(`=> TỔNG CẦN THANH TOÁN: ${Utils.formatUsdAmount(totalUsd)}`);
       lines.push('');
       lines.push(Config.MESSAGE_HEAD_CLOSING);
