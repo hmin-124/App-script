@@ -83,6 +83,50 @@ sửa `RequestService`/`SheetGenerator`/`DataService`.
      `Config.RENEWAL_TYPE_MAP`, và đổi fallback từ `"N/A"` thành **chuỗi
      rỗng** (Dropdown này cho phép để trống — `allowBlank = true`).
 
+### Bug đã fix (báo cáo ngày 21/07/2026, vòng 2) — tin nhắn chỉ đọc được 10/18 tool
+
+**Triệu chứng**: sheet Request có đủ 18 dòng tool thật (dòng 3→20, TOTAL ở
+dòng 21), nhưng tin nhắn Lead/Head duyệt chỉ liệt kê đúng 10 tool đầu tiên
+(toàn bộ nhóm "Gia hạn") — 8 tool còn lại, TRÙNG với toàn bộ nhóm "Mua mới"
+và "Topup Credit" (N8N, GOOGLECLOUD, OPENROUTER), bị thiếu hoàn toàn khỏi cả
+2 tin nhắn.
+
+**Nguyên nhân gốc**: `Utils.findDataRangeFromTotalFormula()` (dùng chung bởi
+cả `SheetGenerator` và `MessageService`) tin tưởng **hoàn toàn vào chuỗi
+công thức SUM hiện tại** ở dòng TOTAL để suy ra dòng cuối của vùng dữ liệu
+(ví dụ `=sum(H3:H12)` → `endRow = 12`). Giả định ban đầu là "Google Sheets
+tự động giãn vùng tham chiếu của công thức SUM khi chèn dòng ngay phía
+trên nó" — giả định này **SAI** khi chèn NHIỀU dòng cùng lúc bằng
+`insertRowsBefore(row, n)`: công thức vẫn giữ nguyên y chuỗi cũ
+(`=sum(H3:H12)`), dù 8 dòng mới đã được chèn thêm phía trên dòng TOTAL cho
+8 tool dư ra so với sức chứa gốc (10 dòng) của Template. Vì `MessageService`
+chỉ đọc đúng những dòng nằm trong `startRow..endRow` mà công thức "khai
+báo", 8 tool cuối (đúng là toàn bộ "Mua mới"/"Topup Credit", vì chúng được
+thêm SAU nhóm "Gia hạn") bị bỏ sót hoàn toàn — không phải do lỗi group logic
+(logic nhóm theo `Loại thanh toán` vẫn đúng, chỉ là không có dữ liệu để nhóm).
+
+**Fix**:
+1. `Utils.findDataRangeFromTotalFormula()`: **không còn tin `endRow` từ công
+   thức nữa**. `endRow` giờ luôn = `totalRowIndex - 1` (đúng theo spec: dòng
+   TOTAL luôn nằm ngay sau dòng dữ liệu cuối, không có dòng trống ở giữa) —
+   bất kể công thức SUM có được cập nhật đúng hay không. `startRow` vẫn lấy
+   từ công thức vì mốc này không bao giờ dịch (chèn dòng luôn xảy ra ngay
+   TRƯỚC dòng TOTAL, không bao giờ trước dòng dữ liệu đầu tiên).
+2. `SheetGenerator._ensureCapacity()`: sau khi `insertRowsBefore()`, giờ
+   **chủ động ghi lại (rewrite)** MỌI công thức ở dòng TOTAL có tham chiếu
+   dạng `START:END` (không chỉ cột "Giá USD" — cột "Giá VNĐ" hoặc cột khác
+   nếu có công thức tương tự cũng được cập nhật), thay vì tin vào hành vi
+   tự giãn không đáng tin cậy của Google Sheets. Nhờ vậy, chính ô TOTAL
+   hiển thị trên sheet cũng luôn đúng cho các lần Generate về sau — không
+   chỉ riêng phần đọc của `MessageService`.
+3. Sheet Request **đã tồn tại từ trước** khi fix này được áp dụng (công
+   thức TOTAL cũ bị "kẹt" ở vùng nhỏ hơn thực tế) vẫn được đọc ĐÚNG ngay lập
+   tức bởi `MessageService` sau khi cập nhật code — không cần Generate lại
+   sheet đó (tránh mất các cột Admin đã điền tay như `ID BOKT`, `Loại thanh
+   toán`). Tuy vậy, **ô TOTAL hiển thị trên chính sheet đó** sẽ vẫn hiển thị
+   sai (do công thức cũ chưa được sửa) cho tới khi Admin tự sửa lại công
+   thức đó bằng tay, hoặc Generate lại sheet.
+
 ## 2. Kiến trúc đề xuất
 
 ```
@@ -227,17 +271,27 @@ onCreateLeadMessageClick() / onCreateHeadMessageClick()  [Code.gs]
 Do không thể chạy trực tiếp trên Google Apps Script trong môi trường phát
 triển này, toàn bộ luồng đã được mô phỏng bằng Node.js (`vm` module chạy
 trực tiếp các file `.gs`, mock đầy đủ `Sheet`/`Range`/`Spreadsheet`/`Ui` kể cả
-`copyTo()` và `insertRowsBefore()` với cơ chế tự giãn công thức SUM giống
-Google Sheets thật) **sử dụng dữ liệu THẬT trích xuất từ file Excel đã
-upload** (`Task_Management_Tracker`, `T7.2026`, `T8.2026`):
+`copyTo()` và `insertRowsBefore()`) **sử dụng dữ liệu THẬT trích xuất từ file
+Excel đã upload** (`Task_Management_Tracker`, `T7.2026`, `T8.2026`). Mock
+`insertRowsBefore()` cố tình **KHÔNG** tự giãn công thức SUM (đúng hành vi
+thật của Google Sheets đã xác nhận qua bug thật — xem mục "Bug đã fix" ở
+trên) — mọi phép giãn công thức trong test phải đến từ chính
+`SheetGenerator._growTotalFormulas()`, không phải từ giả định sai của mock:
 
 - **Happy path**: tick 3 tool (CONTENTFUL, DIGITALOCEAN, N8N) → sheet mới có
   đúng 3 dòng, mapping đúng từng cột (SOURCE/SECTION/TRANSFORM/CONSTANT/
   MANUAL), dòng TOTAL và công thức được giữ nguyên, dữ liệu cũ (tool tháng
   trước) bị xoá sạch.
-- **Mở rộng vùng ghi**: tick 12 tool (nhiều hơn 9 dòng trống có sẵn của
-  template) → tool tự chèn thêm dòng trước TOTAL, công thức SUM tự giãn từ
-  `H3:H11` thành `H3:H14` đúng như hành vi thật của Google Sheets.
+- **Mở rộng vùng ghi + công thức TOTAL**: tick nhiều tool hơn sức chứa gốc
+  của template (ví dụ 18 tool trên template chỉ có 10 dòng trống) → tool tự
+  chèn thêm dòng trước TOTAL, VÀ `SheetGenerator` chủ động ghi lại MỌI công
+  thức SUM ở dòng TOTAL (cả "Giá USD" và "Giá VNĐ") sang đúng vùng mới (ví
+  dụ `H3:H12` → `H3:H20`) — không dựa vào việc Google Sheets tự giãn.
+- **Regression cho đúng bug thật đã báo cáo** (18 tool trên sheet, công
+  thức TOTAL "kẹt" ở `=sum(H3:H12)` — 10 dòng đầu): `MessageService` vẫn
+  đọc ĐÚNG **cả 18 tool**, gồm cả nhóm "Mua mới" (N8N, GOOGLECLOUD) và
+  "Topup Credit" (OPENROUTER) mà bug cũ làm mất hoàn toàn, tổng tiền cộng
+  đúng $12,721.9 (không phải $11,282.9 như tin nhắn lỗi cũ).
 - **Không tool nào được tick** → `UserFacingError` đúng message
   "Không có Tool nào được chọn để tạo Request.".
 - **Thiếu cột checkbox tháng đích** (chưa tạo cột "Request Gia hạn T9") →

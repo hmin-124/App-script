@@ -227,10 +227,30 @@ class Utils {
   }
 
   /**
-   * Reads the data-range boundaries directly from the TOTAL row's own SUM
-   * formula in the "Giá USD" column (e.g. "=sum(H3:H11)" -> {startRow: 3,
-   * endRow: 11}), so callers always match exactly what the template author
-   * defined for that specific month - no hardcoded row numbers anywhere.
+   * Reads the data-range boundaries for a request sheet: `startRow` comes
+   * from the TOTAL row's own SUM formula in the "Giá USD" column (e.g.
+   * "=sum(H3:H11)" -> startRow 3) - that boundary never moves, since new
+   * rows are only ever inserted directly ABOVE the TOTAL row, never above
+   * the first data row. `endRow` is ALWAYS `totalRowIndex - 1` (per spec,
+   * the TOTAL row immediately follows the last data row with no gap) -
+   * deliberately NOT the formula's own end-of-range reference.
+   *
+   * BUG FIX (reported 21/07/2026 - "18 tool trên sheet nhưng tin nhắn chỉ
+   * lọc được 10"): Google Sheets does NOT reliably auto-expand a SUM
+   * formula's range when MULTIPLE rows are inserted in a single
+   * `insertRowsBefore(row, n)` call. A real request sheet had 18 tool rows
+   * (3..20) but its TOTAL formula had stayed exactly "=sum(H3:H12)" - i.e.
+   * only the template's original 10-row capacity - after `SheetGenerator`
+   * inserted 8 more rows for the extra tools. Every reader that trusted the
+   * formula's end reference (this function, and therefore MessageService)
+   * silently ignored the last 8 rows - which also happened to be every
+   * "Mua mới"/"Topup Credit" tool that month, since those were appended
+   * after the "Gia hạn" ones. Using `totalRowIndex - 1` instead makes this
+   * immune to that native-Sheets limitation, for both existing sheets with
+   * an already-stale formula and any future one - see also
+   * `SheetGenerator._growTotalFormulas()`, which now explicitly rewrites
+   * the TOTAL row's own formula(s) after growing capacity, so the sheet's
+   * displayed TOTAL cell stays correct too, not just this function's read.
    * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
    * @param {Object<string, number>} headerMap - Request-sheet header map.
    * @param {number} totalRowIndex
@@ -247,7 +267,15 @@ class Utils {
           `Không đọc được vùng dữ liệu từ công thức của dòng "${Config.TOTAL_ROW_LABEL}" ("${formula}"). Vui lòng kiểm tra lại Template.`
         );
       }
-      return { startRow: Number(match[1]), endRow: Number(match[2]) };
+
+      const startRow = Number(match[1]);
+      const endRow = totalRowIndex - 1;
+      if (endRow < startRow) {
+        throw new UserFacingError(
+          `Vùng dữ liệu không hợp lệ trong sheet "${sheet.getName()}" (dòng "${Config.TOTAL_ROW_LABEL}" nằm trước hoặc ngay tại dòng dữ liệu đầu tiên). Vui lòng kiểm tra lại Template.`
+        );
+      }
+      return { startRow, endRow };
     } catch (error) {
       Utils.rethrow(error, 'Utils.findDataRangeFromTotalFormula');
     }

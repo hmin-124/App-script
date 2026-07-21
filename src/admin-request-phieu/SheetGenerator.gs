@@ -2,18 +2,23 @@
  * SheetGenerator.gs
  * ---------------------------------------------------------------------------
  * Populates an ALREADY-CREATED (copied-from-template) monthly request sheet
- * with new rows. The writable data area is discovered dynamically by
- * reading the existing TOTAL row's own SUM formula (e.g.
- * "=sum(H3:H11)" -> rows 3..11) - so there is no hardcoded row number
- * anywhere, and the range always matches exactly what the template author
- * defined for that specific month.
+ * with new rows. The writable data area is discovered dynamically - the
+ * data END is always "the row directly above TOTAL", and the data START
+ * comes from the TOTAL row's own SUM formula (e.g. "=sum(H3:H11)" -> data
+ * starts at row 3) - so there is no hardcoded row number anywhere, and the
+ * range always matches exactly what the template author defined for that
+ * specific month. See Utils.findDataRangeFromTotalFormula() for why the
+ * data END is no longer taken from the formula's own end-of-range reference.
  *
- * The TOTAL row's formulas are NEVER rewritten by this class. When more
- * rows are required than are currently available, new rows are inserted
- * directly above the TOTAL row via Sheet.insertRowsBefore() - Google Sheets
- * natively extends a SUM formula's range when rows are inserted immediately
- * adjacent to its end, so the formula keeps working correctly without this
- * code ever touching its text.
+ * When more rows are required than are currently available, new rows are
+ * inserted directly above the TOTAL row via Sheet.insertRowsBefore(), and
+ * every formula in the TOTAL row that references a range is EXPLICITLY
+ * rewritten (_growTotalFormulas()) to cover the grown range - Google Sheets
+ * does NOT reliably auto-expand a SUM formula's range when MULTIPLE rows
+ * are inserted in a single insertRowsBefore(row, n) call (confirmed by a
+ * real bug: a formula stayed exactly "=sum(H3:H12)" after 8 more rows were
+ * inserted above it for 8 extra tools, silently excluding them from the
+ * sheet's own TOTAL cell), so this class can no longer assume that behaviour.
  */
 
 class SheetGenerator {
@@ -59,8 +64,9 @@ class SheetGenerator {
    * Grows the data range - by inserting blank rows directly above the TOTAL
    * row - when there are more approved tools than currently-available rows.
    * The newly inserted rows inherit the formatting of the row above them
-   * (native Apps Script behaviour), and the TOTAL row's SUM formula
-   * automatically expands to include them.
+   * (native Apps Script behaviour). The TOTAL row's own formula(s) are then
+   * EXPLICITLY rewritten via _growTotalFormulas() - see this file's header
+   * comment for why native auto-expansion can no longer be trusted here.
    * @param {number} totalRowIndex
    * @param {{startRow:number, endRow:number}} dataRange
    * @param {number} requiredRowCount
@@ -73,10 +79,48 @@ class SheetGenerator {
     if (missingRowCount <= 0) return dataRange;
 
     this.sheet.insertRowsBefore(totalRowIndex, missingRowCount);
+    const newTotalRowIndex = totalRowIndex + missingRowCount;
+    const newDataRange = { startRow: dataRange.startRow, endRow: dataRange.endRow + missingRowCount };
+
+    this._growTotalFormulas(newTotalRowIndex, newDataRange.endRow);
+
     AppLogger.info(
-      `SheetGenerator: inserted ${missingRowCount} row(s) before the TOTAL row to fit ${requiredRowCount} tool(s).`
+      `SheetGenerator: inserted ${missingRowCount} row(s) before the TOTAL row to fit ${requiredRowCount} tool(s), ` +
+        `and grew the TOTAL row's formula(s) to match.`
     );
-    return { startRow: dataRange.startRow, endRow: dataRange.endRow + missingRowCount };
+    return newDataRange;
+  }
+
+  /**
+   * Rewrites every formula in the TOTAL row that references a `START:END`
+   * range (e.g. "=sum(H3:H12)" -> "=sum(H3:H20)"), extending ONLY the end
+   * of the range to `newEndRow` while keeping the start row and everything
+   * else about the formula untouched. Cells in the TOTAL row that do NOT
+   * contain such a formula (the "TOTAL" label itself, blank cells, ...) are
+   * never written to - `getFormula()` returns '' for those, which is
+   * filtered out before any write happens.
+   * @param {number} totalRowIndex - The TOTAL row's index AFTER insertion.
+   * @param {number} newEndRow - The new last data row (totalRowIndex - 1).
+   * @private
+   */
+  _growTotalFormulas(totalRowIndex, newEndRow) {
+    const lastColumn = this.sheet.getLastColumn();
+    const rowRange = this.sheet.getRange(totalRowIndex, 1, 1, lastColumn);
+    const formulas = rowRange.getFormulas()[0];
+
+    formulas.forEach((formula, offset) => {
+      if (!formula) return; // Not a formula cell (label/blank) - leave untouched.
+
+      const match = formula.match(/([A-Za-z]+)(\d+):([A-Za-z]+)(\d+)/);
+      if (!match) return; // Formula doesn't reference a START:END range - leave untouched.
+
+      const [, startCol, startRowText, endCol] = match;
+      const rewritten = formula.replace(
+        /([A-Za-z]+)(\d+):([A-Za-z]+)(\d+)/,
+        `${startCol}${startRowText}:${endCol}${newEndRow}`
+      );
+      this.sheet.getRange(totalRowIndex, offset + 1).setFormula(rewritten);
+    });
   }
 
   /**
