@@ -156,10 +156,10 @@ onGenerateRequestSheetClick()  [Code.gs]
 3. Bật hiển thị manifest (**Project Settings ⚙️ → Show 'appsscript.json'**),
    paste nội dung `appsscript.json`.
 4. Lưu (`Ctrl+S`), tải lại Google Sheet.
-5. Menu **Admin Tools → Generate Request Sheet** xuất hiện.
+5. Menu **🛠️ Admin Tools → 📄 Generate Request Sheet** xuất hiện.
 6. Trong `Task_Management_Tracker`, tick các checkbox ở cột
    `Request Gia hạn T{tháng kế tiếp}` cho tool cần tạo Request.
-7. Chạy **Admin Tools → Generate Request Sheet**. Lần đầu chạy sẽ có popup
+7. Chạy **🛠️ Admin Tools → 📄 Generate Request Sheet**. Lần đầu chạy sẽ có popup
    xác thực quyền — Review permissions → Advanced → Go to [project] (unsafe) → Allow.
 
 ## 6. Hiệu năng & Logging

@@ -42,14 +42,18 @@ class Config {
   // Menu
   // ---------------------------------------------------------------------
 
-  /** @returns {string} Top-level custom menu name. */
+  /**
+   * @returns {string} Top-level custom menu name. Apps Script's
+   * `createMenu()` has no API for an image icon, so a Unicode emoji prefix
+   * is used instead to make the menu easy to spot in the menu bar.
+   */
   static get MENU_NAME() {
-    return 'Admin Tools';
+    return '🛠️ Admin Tools';
   }
 
   /** @returns {string} Menu item label that triggers the sheet-generation flow. */
   static get MENU_ITEM_GENERATE() {
-    return 'Generate Request Sheet';
+    return '📄 Generate Request Sheet';
   }
 
   // ---------------------------------------------------------------------
