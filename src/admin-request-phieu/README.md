@@ -1,12 +1,14 @@
 # Admin Request Phiếu — DevSEO Software Info
 
-Công cụ Google Apps Script tự động tạo Sheet Request thanh toán tool hàng
-tháng cho file **M5 - DevSEO - Software Info**, dựa trên checkbox admin tick
-trong sheet tracker (`Config.TRACKER_SHEET_NAME`, hiện là **`QUẢN LÝ
-TOOLS`** — sheet này ban đầu tên `Task_Management_Tracker`, đã được Admin
-đổi tên; toàn bộ code chỉ resolve sheet này qua MỘT hằng số duy nhất
-`Config.TRACKER_SHEET_NAME`, nên đổi tên sheet lần sau chỉ cần sửa đúng 1
-dòng đó trong `Config.gs`, không phải sửa `DataService`/`RequestService`).
+Công cụ Google Apps Script cho file **M5 - DevSEO - Software Info**:
+
+1. **🛠️ Admin Tools** — Generate sheet Request gia hạn hàng tháng (`T{n}.{yyyy}`)
+   từ checkbox trên tracker (`QUẢN LÝ TOOLS`), + tin nhắn Lead/Head duyệt.
+2. **🛒 Tool Request** — Form sheet `NEW_TOOL_REQUEST` để đề xuất mua Tool mới,
+   Preview, gửi Google Chat Webhook, ghi `NEW_TOOL_REQUEST_LOG`.
+
+Tracker resolve qua đúng 1 hằng số `Config.TRACKER_SHEET_NAME` (hiện
+`QUẢN LÝ TOOLS`; trước đây `Task_Management_Tracker`).
 
 ## 1. Phân tích cấu trúc dữ liệu (từ file đã upload)
 
@@ -141,8 +143,9 @@ TemplateService.gs      - Tìm & copy sheet mẫu "tháng gần nhất"
 SheetGenerator.gs       - Ghi dữ liệu vào sheet mới (tự tìm vùng ghi từ công thức TOTAL)
 RequestService.gs       - Orchestrator: nối toàn bộ luồng nghiệp vụ Generate Request Sheet
 MessageService.gs       - Đọc sheet Request đã tạo/đã sửa -> build tin nhắn Lead/Head duyệt
-NewToolRequestService.gs- Form nhập tay -> build tin nhắn Request mua Tool mới (KHÔNG đọc sheet)
-Menu.gs                 - onOpen() - tạo menu "🛠️ Admin Tools"
+NewToolRequestService.gs- Sheet NEW_TOOL_REQUEST → validate/preview/send Google Chat + log
+NewToolRequestPreview.html - Dialog Preview (textarea + Copy)
+Menu.gs                 - onOpen(): "🛠️ Admin Tools" + "🛒 Tool Request"
 Code.gs                 - Global handler cho menu (mỏng, chỉ gọi *Service + hiển thị Dialog)
 ```
 
@@ -169,7 +172,7 @@ Nguyên tắc SOLID áp dụng:
 | `SheetGenerator` | SheetGenerator.gs | Ghi dữ liệu vào sheet mới |
 | `RequestService` | RequestService.gs | Điều phối toàn bộ luồng Generate Request Sheet |
 | `MessageService` | MessageService.gs | Đọc sheet Request đã generate/đã sửa, build tin nhắn Lead/Head duyệt |
-| `NewToolRequestService` | NewToolRequestService.gs | Build tin nhắn "Request mua Tool mới" từ dữ liệu Form nhập tay (không đọc/ghi sheet) |
+| `NewToolRequestService` | NewToolRequestService.gs | Form sheet `NEW_TOOL_REQUEST` → Preview / Send Chat webhook / Log / Reset |
 
 ## 4. Luồng xử lý (Generate Request Sheet)
 
@@ -246,79 +249,75 @@ onCreateLeadMessageClick() / onCreateHeadMessageClick()  [Code.gs]
 - "TỔNG CẦN THANH TOÁN" luôn là tổng cột "Giá USD" của **toàn bộ** tool đã
   điền (cả 2 tin nhắn dùng cùng 1 tổng, kể cả Topup Credit).
 
-## 6. Luồng xử lý (Tạo tin nhắn Request mua Tool mới)
+## 6. Luồng xử lý (Request mua Tool mới — sheet form + Google Chat)
 
-`NewToolRequestService` **không đọc/ghi bất kỳ sheet nào** - một Tool hoàn
-toàn MỚI chưa có dòng nào trong sheet tracker (QUẢN LÝ TOOLS) hay bất kỳ sheet
-Request nào tại thời điểm cần gửi tin xin duyệt, nên toàn bộ dữ liệu đến từ
-một **Form nhập tay** hiện ngay trong 1 dialog:
+Modal Form cũ **không còn dùng**. Admin nhập trên sheet `NEW_TOOL_REQUEST`
+(cột A = Field, B = Value, C = Example), rồi dùng menu **🛒 Tool Request**.
 
 ```
-onCreateNewToolRequestClick()  [Code.gs]
-  └─ NewToolRequestService.getFormHtml() -> hiện dialog (view "form")
-       (Admin điền: Team/Phòng ban, Tên tool, Thông tin gói/Tính năng,
-        Tháng đề xuất, ID phiếu, Thời gian triển khai, Brand triển khai,
-        Giá, Đơn vị tiền, GTGT%, STK/Tên người nhận/Tên ngân hàng, Note)
-  Admin bấm "Tạo tin nhắn"
-  └─ (client-side JS) google.script.run.buildNewToolRequestMessage(formData)
-        └─ [Code.gs] buildNewToolRequestMessage(formData)   <- top-level function,
-             google.script.run KHÔNG gọi được method của class trực tiếp
-             └─ NewToolRequestService.buildMessage(formData)
-                   - validate đủ 5 nhóm trường bắt buộc, throw UserFacingError
-                     (liệt kê rõ tên MỌI trường còn thiếu) nếu sai
-                   - GTGT = Price * VAT% ; TOTAL = Price + GTGT
-                   - build text đúng theo mẫu Admin cung cấp
-  - Thành công -> cùng dialog tự chuyển sang view "result" (Textarea + nút Copy)
-  - Lỗi (thiếu trường) -> hiện lỗi NGAY TRONG form (không mất dữ liệu đã điền,
-    không mở thêm dialog nào khác)
+setupNewToolRequestTemplate()
+  └─ tạo/refresh sheet NEW_TOOL_REQUEST + NEW_TOOL_REQUEST_LOG
+       (label, dropdown Currency/Payment/VAT/Status, công thức Duration/VAT/Total)
+
+previewNewToolRequest()
+  └─ readRequestForm_ (1 lần getValues) → validate → calculate → build message
+  └─ show Preview dialog (NewToolRequestPreview.html) — KHÔNG gửi Chat
+
+sendNewToolRequest() / resendNewToolRequest()
+  └─ LockService.waitLock(30s)
+  └─ validate (+ chống trùng Request ID / Status=Sent, trừ khi Resend)
+  └─ getWebhookUrl_(Chat Webhook Key) từ Script Properties
+  └─ UrlFetchApp.fetch(webhook, { text: message })
+  └─ Status=Sent|Error, ghi NEW_TOOL_REQUEST_LOG, update Message ID / Sent At
 ```
 
-**Quy ước khi build tin nhắn:**
+**Webhook:** không hard-code trong source. Lưu URL vào
+**Project Settings → Script properties**, ví dụ key `CHAT_WEBHOOK_SEO_TECH`.
+Ô **Chat Webhook Key** trên form phải trùng đúng key đó.
 
-- 5 nhóm trường bắt buộc (theo yêu cầu): **Tên tool**, **Thông tin gói /
-  Tính năng**, **Giá**, **Thời gian triển khai**, **Phương thức thanh toán**
-  (tính đủ khi có ĐỦ CẢ 3: STK + Tên người nhận + Tên ngân hàng). Ngoài ra
-  **Team/Phòng ban** (tag trong `[...]` ở đầu tin) cũng bắt buộc vì tin
-  nhắn không có nghĩa nếu thiếu.
-- **Brand triển khai** mặc định `Config.NEW_TOOL_REQUEST_DEFAULT_BRAND`
-  (`"All brand"`), **Đơn vị tiền** mặc định `Config.NEW_TOOL_REQUEST_DEFAULT_CURRENCY`
-  (`"USD"`), **GTGT %** mặc định `Config.NEW_TOOL_REQUEST_DEFAULT_VAT_PERCENT`
-  (`10`) - cả 3 đều hiện sẵn trong Form, Admin có thể sửa trước khi bấm
-  "Tạo tin nhắn".
-- **ID phiếu** và **Note** là 2 dòng DUY NHẤT bị **ẩn hoàn toàn** khỏi tin
-  nhắn nếu để trống (mọi trường khác luôn xuất hiện, kể cả khi rỗng).
-- **Tháng đề xuất** dùng input `<input type="month">` (HTML5) để có UI chọn
-  tháng gọn, tự động đổi từ giá trị gốc `"YYYY-MM"` sang đúng chữ
-  `"MM/YYYY"` mà tin nhắn cần; nếu để trống, tự dùng tháng hiện tại.
-- **Tên tool** được viết HOA tự động CHỈ ở dòng tiêu đề (`NCC AHREFS`),
-  giữ nguyên chữ hoa/thường Admin gõ ở mọi chỗ khác trong tin nhắn.
+**Chống gửi trùng:** chặn khi Status = Sent, hoặc Request ID / Message ID đã
+có trong Log với Status = Sent. Dùng **Resend Request** (có confirm) để gửi lại.
 
 ## 7. Cài đặt
 
+### 7.1 Copy code vào Apps Script
+
 1. Mở Google Sheet **M5 - DevSEO - Software Info** → **Extensions → Apps Script**.
-2. Tạo 10 file Script đúng tên: `Config`, `Utils`, `DataService`,
-   `TemplateService`, `SheetGenerator`, `RequestService`, `MessageService`,
-   `NewToolRequestService`, `Menu`, `Code`. Copy nội dung tương ứng từ thư
-   mục này vào từng file.
-3. Bật hiển thị manifest (**Project Settings ⚙️ → Show 'appsscript.json'**),
-   paste nội dung `appsscript.json`.
-4. Lưu (`Ctrl+S`), tải lại Google Sheet.
-5. Menu **🛠️ Admin Tools** xuất hiện với 4 mục: **📄 Generate Request
-   Sheet**, **💬 Tạo tin nhắn Lead duyệt**, **📨 Tạo tin nhắn Head duyệt**,
-   **🆕 Tạo tin nhắn Request mua Tool mới**.
-6. Trong sheet tracker (`QUẢN LÝ TOOLS`), tick các checkbox ở cột
-   `Request Gia hạn T{tháng kế tiếp}` cho tool cần tạo Request.
-7. Chạy **🛠️ Admin Tools → 📄 Generate Request Sheet**. Lần đầu chạy sẽ có popup
-   xác thực quyền — Review permissions → Advanced → Go to [project] (unsafe) → Allow.
-8. Mở sheet Request vừa tạo, điền/sửa các cột `MANUAL` (`Loại thanh toán`,
-   `ID BOKT`, ...) như bình thường.
-9. Vẫn đang ở tab sheet Request đó, chạy **🛠️ Admin Tools → 💬 Tạo tin nhắn
-   Lead duyệt** (hoặc **📨 Tạo tin nhắn Head duyệt**) → dialog hiện tin nhắn,
-   bấm **📋 Copy nội dung** rồi dán vào chat.
-10. Với Tool hoàn toàn mới (chưa có trong sheet tracker `QUẢN LÝ TOOLS`), chạy
-    **🛠️ Admin Tools → 🆕 Tạo tin nhắn Request mua Tool mới** ở BẤT KỲ sheet
-    nào (không cần mở sheet Request) → điền Form → bấm "Tạo tin nhắn" →
-    bấm **📋 Copy nội dung** rồi dán vào chat.
+2. Tạo các file Script: `Config`, `Utils`, `DataService`, `TemplateService`,
+   `SheetGenerator`, `RequestService`, `MessageService`, `NewToolRequestService`,
+   `Menu`, `Code`. Copy nội dung từ thư mục này.
+3. Tạo thêm file **HTML** tên `NewToolRequestPreview` (File → New → HTML),
+   paste `NewToolRequestPreview.html`.
+4. Bật manifest (**Project Settings ⚙️ → Show appsscript.json**), paste
+   `appsscript.json` (cần scope `script.external_request` để gọi Google Chat).
+5. Lưu (`Ctrl+S`), tải lại Google Sheet.
+
+### 7.2 Tạo Google Chat Incoming Webhook
+
+1. Mở space Google Chat cần nhận đề xuất → **Apps & integrations → Webhooks**.
+2. **Add webhook** → đặt tên (vd. `Tool Request SEO`) → Copy URL.
+3. Trong Apps Script: **Project Settings → Script properties → Add script property**
+   - Property: `CHAT_WEBHOOK_SEO_TECH` (hoặc key team khác)
+   - Value: dán URL webhook (không commit URL này vào git)
+
+### 7.3 Setup form + test
+
+1. Menu **🛒 Tool Request → Setup Template** (lần đầu / khi cần tạo lại layout).
+2. Mở sheet `NEW_TOOL_REQUEST`, điền cột **Value** (xem cột Example).
+3. **Preview Request** → kiểm tra nội dung, Copy nếu cần.
+4. **Send Request** → lần đầu cấp quyền (Sheets + external request) → Allow.
+5. Kiểm tra tin trên Google Chat + dòng mới trên `NEW_TOOL_REQUEST_LOG`.
+6. Status trên form = `Sent`. Muốn gửi lại → **Resend Request**.
+
+### 7.4 Gắn Button (tuỳ chọn)
+
+Insert → Drawing / Image → Assign script:
+`previewNewToolRequest` / `sendNewToolRequest` / `resetNewToolRequestForm`.
+
+### 7.5 Admin Tools (gia hạn tool hàng tháng) — giữ nguyên
+
+1. Tick checkbox `Request Gia hạn T{n}` trên `QUẢN LÝ TOOLS`.
+2. **🛠️ Admin Tools → Generate Request Sheet** / tin Lead / Head duyệt.
 
 ## 8. Hiệu năng & Logging
 
@@ -382,27 +381,30 @@ trên) — mọi phép giãn công thức trong test phải đến từ chính
 - **Sheet Request tồn tại nhưng chưa có Tool nào** (mọi slot còn trống) →
   `UserFacingError` báo rõ tên sheet.
 
-**`NewToolRequestService` (tin nhắn Request mua Tool mới)** — test THUẦN
-logic (không cần mock `Sheet`/`Spreadsheet` gì cả, vì class này không đọc/
-ghi sheet), dùng ĐÚNG dữ liệu mẫu Admin cung cấp (AHREFS/SEO TECH):
+**`NewToolRequestService` (sheet form + message template)** — chạy:
+`node src/admin-request-phieu/tests/new-tool-request-sheet.test.js`
 
-- **Khớp mẫu 100%**: build từ đúng dữ liệu mẫu → message ra **giống Y NGUYÊN
-  từng ký tự** với mẫu Admin đã cung cấp (so sánh string bằng `===`).
-- **Áp dụng default đúng**: để trống Brand/Đơn vị tiền/GTGT% → tự điền
-  "All brand"/"USD"/10% từ `Config`; để trống "Tháng đề xuất" → tự dùng
-  tháng hiện tại (không để lại chuỗi rỗng/khoảng trắng thừa trên dòng tiêu đề).
-- **GTGT/TOTAL tính đúng**: `GTGT = Price * VAT%`, `TOTAL = Price + GTGT`,
-  kể cả khi VAT = 0%.
-- **"ID phiếu"/"Note" ẩn hoàn toàn** khỏi tin nhắn khi để trống (mọi trường
-  khác luôn hiện, không có trường tuỳ chọn nào khác bị ẩn).
-- **Validation liệt kê ĐỦ mọi trường thiếu** trong 1 `UserFacingError` duy
-  nhất khi để trống toàn bộ Form; validation cũng bắt được trường hợp
-  "Phương thức thanh toán" chỉ điền 2/3 trường (STK + Tên ngân hàng nhưng
-  thiếu Tên người nhận) và "Giá" = 0.
+- **Khớp mẫu 100%** dữ liệu AHREFS / SEO TECH trong spec (so sánh `===`).
+- Duration = End − Start + 1 (31 ngày); VAT/TOTAL `249 → 24.90 / 273.90`.
+- Ẩn dòng STK / Recipient / Bank / Payment Note khi trống.
+- Approver trống → câu "Nhờ anh duyệt..."; có Approver → "Nhờ {tên} duyệt...".
+- Parse VAT nhận `10%` / `0.1` / `10`.
 
-Toàn bộ 10 file `.gs` pass `node --check`.
+Toàn bộ file `.gs` pass `node --check` (qua bản copy `.js` tạm).
 
-## 10. Mở rộng (roadmap, xem chi tiết trong `Code.gs`)
+## 10. Lỗi thường gặp
+
+| Hiện tượng | Cách xử lý |
+| --- | --- |
+| Không tìm thấy sheet `NEW_TOOL_REQUEST` | Chạy **Setup Template** |
+| Chat Webhook chưa được cấu hình cho key … | Thêm Script property đúng tên key trên form |
+| Request ID đã được gửi trước đó | Đổi Request ID mới, hoặc dùng **Resend Request** |
+| Status đang là Sent | Dùng **Resend**, hoặc **Reset Form** rồi tạo request mới |
+| End Date < Start Date | Sửa ngày trên form |
+| HTTP 4xx/5xx từ Google Chat | Kiểm tra webhook còn sống; xem `NEW_TOOL_REQUEST_LOG` (không lộ URL) |
+| Preview dialog không mở (thiếu HTML file) | Tạo file HTML `NewToolRequestPreview` — code có fallback `Utils.showMessageDialog` |
+
+## 11. Mở rộng (roadmap, xem chi tiết trong `Code.gs`)
 
 Thêm tính năng mới (Generate BOKT, Generate Email, Generate Telegram Message,
 Export PDF/Excel, Archive Sheet, Auto gửi Gmail) chỉ cần:

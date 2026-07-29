@@ -18,16 +18,12 @@
  *   - Auto gửi Gmail             -> new GmailService.gs + onSendGmailClick()
  * Each new feature follows the exact same pattern used here: a dedicated
  * *Service class (constructor takes the spreadsheet), a thin global handler
- * in this file, and one extra `.addItem(...)` line in Menu.gs. None of them
- * need to read RequestService.generateRequestSheet()'s summary directly,
- * but they CAN - it already returns { sheetName, toolCount } for reuse.
+ * in this file, and one extra `.addItem(...)` line in Menu.gs.
  * ---------------------------------------------------------------------------
  */
 
 /**
- * Menu handler for "Admin Tools -> Generate Request Sheet". Wraps the whole
- * RequestService flow with error handling so any failure produces a clear
- * dialog for the admin instead of a silent script error.
+ * Menu handler for "Admin Tools -> Generate Request Sheet".
  */
 function onGenerateRequestSheetClick() {
   try {
@@ -50,10 +46,7 @@ function onGenerateRequestSheetClick() {
 }
 
 /**
- * Menu handler for "Admin Tools -> Tạo tin nhắn Lead duyệt". Reads the
- * already-generated (and possibly Admin-edited) request sheet and shows a
- * copyable message grouped by Gia hạn / Mua mới / Topup Credit, per
- * MessageService.buildLeadApprovalMessage().
+ * Menu handler for "Admin Tools -> Tạo tin nhắn Lead duyệt".
  */
 function onCreateLeadMessageClick() {
   try {
@@ -74,9 +67,7 @@ function onCreateLeadMessageClick() {
 }
 
 /**
- * Menu handler for "Admin Tools -> Tạo tin nhắn Head duyệt". Reads the same
- * request sheet as the Lead message, but shows a flat list per
- * MessageService.buildHeadApprovalMessage().
+ * Menu handler for "Admin Tools -> Tạo tin nhắn Head duyệt".
  */
 function onCreateHeadMessageClick() {
   try {
@@ -96,37 +87,61 @@ function onCreateHeadMessageClick() {
   }
 }
 
-/**
- * Menu handler for "Admin Tools -> Tạo tin nhắn Request mua Tool mới".
- * Opens NewToolRequestService's input-form dialog. Unlike every other menu
- * handler in this file, no sheet is read here - the form itself calls
- * buildNewToolRequestMessage() (below) via google.script.run and swaps to
- * a copyable result view in-place, so this function's only job is to show
- * the initial HTML.
- */
-function onCreateNewToolRequestClick() {
+// ===========================================================================
+// 🛒 Tool Request menu handlers (sheet-based NEW_TOOL_REQUEST workflow)
+// ===========================================================================
+
+function setupNewToolRequestTemplate() {
   try {
-    const html = NewToolRequestService.getFormHtml();
-    const output = HtmlService.createHtmlOutput(html).setWidth(480).setHeight(680);
-    SpreadsheetApp.getUi().showModalDialog(output, '🆕 Request mua Tool mới');
+    new NewToolRequestService(SpreadsheetApp.getActiveSpreadsheet()).setupTemplate();
   } catch (error) {
-    AppLogger.error(`onCreateNewToolRequestClick: ${error.message}`);
-    Utils.showAlert('Đã xảy ra lỗi', error.message);
+    AppLogger.error(`setupNewToolRequestTemplate: ${error.message}`);
+    Utils.showAlert(error instanceof UserFacingError ? 'Thông báo' : 'Đã xảy ra lỗi', error.message);
+  }
+}
+
+function previewNewToolRequest() {
+  try {
+    new NewToolRequestService(SpreadsheetApp.getActiveSpreadsheet()).preview();
+  } catch (error) {
+    AppLogger.error(`previewNewToolRequest: ${error.message}`);
+    Utils.showAlert(error instanceof UserFacingError ? 'Thông báo' : 'Đã xảy ra lỗi', error.message);
+  }
+}
+
+function sendNewToolRequest() {
+  try {
+    new NewToolRequestService(SpreadsheetApp.getActiveSpreadsheet()).send({ forceResend: false });
+  } catch (error) {
+    AppLogger.error(`sendNewToolRequest: ${error.message}`);
+    Utils.showAlert(error instanceof UserFacingError ? 'Thông báo' : 'Đã xảy ra lỗi', error.message);
+  }
+}
+
+function resendNewToolRequest() {
+  try {
+    new NewToolRequestService(SpreadsheetApp.getActiveSpreadsheet()).resend();
+  } catch (error) {
+    AppLogger.error(`resendNewToolRequest: ${error.message}`);
+    Utils.showAlert(error instanceof UserFacingError ? 'Thông báo' : 'Đã xảy ra lỗi', error.message);
+  }
+}
+
+function resetNewToolRequestForm() {
+  try {
+    new NewToolRequestService(SpreadsheetApp.getActiveSpreadsheet()).resetForm();
+  } catch (error) {
+    AppLogger.error(`resetNewToolRequestForm: ${error.message}`);
+    Utils.showAlert(error instanceof UserFacingError ? 'Thông báo' : 'Đã xảy ra lỗi', error.message);
   }
 }
 
 /**
- * google.script.run endpoint called by NewToolRequestService.getFormHtml()'s
- * client-side JS when Admin clicks "Tạo tin nhắn". Must be a top-level
- * function (google.script.run cannot call a class's static method
- * directly) - deliberately does NOT catch errors with Utils.showAlert()
- * like every other handler above: a thrown UserFacingError (e.g. a missing
- * required field) is serialized straight back to the dialog's own
- * withFailureHandler() and shown INLINE in the form, instead of stacking a
- * second alert dialog on top of the still-open form dialog.
- * @param {Object} formData - Raw field values submitted by the form.
- * @returns {{message: string}}
+ * Pure message builder exposed for tests / reuse. Accepts a normalized data
+ * object (already validated + calculateRequestAmounts_ applied).
+ * @param {Object} data
+ * @returns {string}
  */
-function buildNewToolRequestMessage(formData) {
-  return NewToolRequestService.buildMessage(formData);
+function buildNewToolRequestMessage(data) {
+  return NewToolRequestService.buildNewToolRequestMessage(data);
 }
