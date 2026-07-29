@@ -279,11 +279,17 @@ onCreateLeadMessageClick() / onCreateHeadMessageClick()  [Code.gs]
 2. Copy đủ các file `.gs` + `appsscript.json` từ thư mục này. Kiểm tra
    `appsscript.json` có `"runtimeVersion": "V8"`.
 3. Lưu → reload sheet. Menu **🛠️ Admin Tools** phải hiện bên phải Help.
-4. **Nếu không thấy menu:** trong Apps Script chọn hàm `createAdminMenu` →
-   **Run** → cấp quyền nếu được hỏi → reload lại Sheet.
-5. Thêm tool trên `QUẢN LÝ TOOLS` → tick `Request Gia hạn T{n}`.
-6. **Generate Request Sheet** → mở `Request Tool mới T{n}.{yyyy}`.
-7. Điền STK / ID BOKT / Note nếu cần → chạy **GỬI TIN NHẮN ĐỀ XUẤT MUA TOOL MỚI**
+4. **Đặt tên file đúng:** khi tạo file trong Apps Script chỉ gõ tên không
+   có đuôi (vd. `SheetGenerator`, `Menu`, `Config`). Editor tự thêm `.gs`.
+   Nếu gõ `SheetGenerator.gs` sẽ ra file `SheetGenerator.gs.gs` → lỗi
+   `Identifier 'SheetGenerator' has already been declared` và **mất hết menu**.
+5. **Nếu không thấy menu / bị SyntaxError trùng class:**
+   - Xóa file trùng có đuôi kép (vd. `SheetGenerator.gs.gs`) — giữ lại
+     đúng 1 file `SheetGenerator.gs`.
+   - Lưu → chọn hàm `createAdminMenu` → **Run** → Allow → reload Sheet.
+6. Thêm tool trên `QUẢN LÝ TOOLS` → tick `Request Gia hạn T{n}`.
+7. **Generate Request Sheet** → mở `Request Tool mới T{n}.{yyyy}`.
+8. Điền STK / ID BOKT / Note nếu cần → chạy **GỬI TIN NHẮN ĐỀ XUẤT MUA TOOL MỚI**
    → Copy tin nhắn.
 
 ## 8. Hiệu năng & Logging
