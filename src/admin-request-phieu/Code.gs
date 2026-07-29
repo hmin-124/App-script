@@ -5,6 +5,9 @@
  * directly (menu item targets, simple triggers). Deliberately kept THIN:
  * all real logic lives in the *Service classes; this file only wires the UI
  * to them and turns errors into user-facing dialogs.
+ *
+ * If the custom menu is missing after deploy: open Apps Script → select
+ * function createAdminMenu → Run (authorize if prompted) → reload the Sheet.
  */
 
 /**

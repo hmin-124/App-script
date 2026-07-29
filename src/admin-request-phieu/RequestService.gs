@@ -103,8 +103,10 @@ class RequestService {
       case 'SEQUENCE':
         return sequenceNumber;
 
-      case 'SOURCE':
-        return tool.get(columnRule.sourceHeader) ?? '';
+      case 'SOURCE': {
+        const sourceValue = tool.get(columnRule.sourceHeader);
+        return sourceValue === null || sourceValue === undefined ? '' : sourceValue;
+      }
 
       case 'TRANSFORM': {
         const rawValue = tool.get(columnRule.sourceHeader);

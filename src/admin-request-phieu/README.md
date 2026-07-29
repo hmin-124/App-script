@@ -273,13 +273,17 @@ onCreateLeadMessageClick() / onCreateHeadMessageClick()  [Code.gs]
 
 ## 7. Cài đặt
 
-1. Mở Google Sheet **M5 - DevSEO - Software Info** → **Extensions → Apps Script**.
-2. Copy đủ các file `.gs` + `appsscript.json` từ thư mục này.
-3. Lưu, reload sheet → menu **🛠️ Admin Tools** có 4 mục (Generate / Lead /
-   Head / **GỬI TIN NHẮN ĐỀ XUẤT MUA TOOL MỚI**).
-4. Thêm tool trên `QUẢN LÝ TOOLS` → tick `Request Gia hạn T{n}`.
-5. **Generate Request Sheet** → mở `Request Tool mới T{n}.{yyyy}`.
-6. Điền STK / ID BOKT / Note nếu cần → chạy **GỬI TIN NHẮN ĐỀ XUẤT MUA TOOL MỚI**
+1. Mở Google Sheet **M5 - DevSEO - Software Info** → **Extensions → Apps Script**
+   (phải là project **gắn với spreadsheet**, không phải project standalone
+   "Untitled project" tách rời — menu custom chỉ hiện trên bound script).
+2. Copy đủ các file `.gs` + `appsscript.json` từ thư mục này. Kiểm tra
+   `appsscript.json` có `"runtimeVersion": "V8"`.
+3. Lưu → reload sheet. Menu **🛠️ Admin Tools** phải hiện bên phải Help.
+4. **Nếu không thấy menu:** trong Apps Script chọn hàm `createAdminMenu` →
+   **Run** → cấp quyền nếu được hỏi → reload lại Sheet.
+5. Thêm tool trên `QUẢN LÝ TOOLS` → tick `Request Gia hạn T{n}`.
+6. **Generate Request Sheet** → mở `Request Tool mới T{n}.{yyyy}`.
+7. Điền STK / ID BOKT / Note nếu cần → chạy **GỬI TIN NHẮN ĐỀ XUẤT MUA TOOL MỚI**
    → Copy tin nhắn.
 
 ## 8. Hiệu năng & Logging
