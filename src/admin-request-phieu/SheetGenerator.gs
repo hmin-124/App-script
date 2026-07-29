@@ -127,7 +127,9 @@ class SheetGenerator {
    * Writes the mapped request rows into the sheet:
    *   1. Clears the previous month's leftover data (content only).
    *   2. Grows the data range if needed.
-   *   3. Writes every row in a SINGLE batched setValues() call.
+   *   3. Places each COLUMN_MAPPING value into its header column (so newly
+   *      appended message columns at the far right still receive the right
+   *      data), then writes the full grid in ONE setValues() call.
    * The TOTAL row and its formulas are never touched directly.
    * @param {Array<Array<*>>} rowValues - One row per approved tool, ordered
    *   exactly like Config.COLUMN_MAPPING.
@@ -146,7 +148,17 @@ class SheetGenerator {
       Utils.clearOldData(this.sheet, dataRange.startRow, dataRange.endRow, columnCount);
 
       if (rowValues.length > 0) {
-        this.sheet.getRange(dataRange.startRow, 1, rowValues.length, rowValues[0].length).setValues(rowValues);
+        const mapping = Config.COLUMN_MAPPING;
+        const columnIndexes = mapping.map((rule) => Utils.findColumn(this.headerMap, rule.target) - 1);
+        const grid = rowValues.map((mappedRow) => {
+          const line = new Array(columnCount).fill('');
+          mappedRow.forEach((value, mapIndex) => {
+            const colIndex = columnIndexes[mapIndex];
+            if (colIndex >= 0 && colIndex < columnCount) line[colIndex] = value;
+          });
+          return line;
+        });
+        this.sheet.getRange(dataRange.startRow, 1, grid.length, columnCount).setValues(grid);
       }
 
       AppLogger.info(`SheetGenerator: wrote ${rowValues.length} row(s) into sheet "${this.sheet.getName()}".`);

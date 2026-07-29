@@ -27,9 +27,11 @@ class UserFacingError extends Error {
 }
 
 /**
- * Minimal leveled logger toggled by Config.ENABLE_LOGGING. Writes to both
- * the Apps Script Logger (visible in the Executions panel) and console
- * (visible in Stackdriver/Cloud Logging).
+ * Minimal leveled logger toggled by Config.ENABLE_LOGGING.
+ *
+ * Writes to Logger ONLY. The Apps Script Execution log surfaces BOTH
+ * `console.*` and `Logger.log`, so writing to both made every line appear
+ * twice (the bug seen when running Generate Request Sheet).
  */
 class AppLogger {
   /** @param {string} message */
@@ -55,16 +57,7 @@ class AppLogger {
    */
   static _write(level, message) {
     if (!Config.ENABLE_LOGGING) return;
-
-    const line = `[${level}] ${message}`;
-    if (level === Config.LOG_LEVEL.ERROR) {
-      console.error(line);
-    } else if (level === Config.LOG_LEVEL.WARNING) {
-      console.warn(line);
-    } else {
-      console.log(line);
-    }
-    Logger.log(line);
+    Logger.log(`[${level}] ${message}`);
   }
 }
 
@@ -313,13 +306,14 @@ class Utils {
 
   /**
    * Computes the request-sheet name for the month AFTER `baseDate`, e.g.
-   * today = 07/2026 -> "T8.2026".
+   * today = 07/2026 -> "Request Tool mới T8.2026".
    * @param {Date} [baseDate]
    * @returns {string}
    */
   static getNextMonthSheetName(baseDate = new Date()) {
     const next = new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 1);
-    return `${Config.REQUEST_SHEET_PREFIX}${next.getMonth() + 1}.${next.getFullYear()}`;
+    const token = `${Config.REQUEST_SHEET_PREFIX}${next.getMonth() + 1}.${next.getFullYear()}`;
+    return `${Config.REQUEST_SHEET_TITLE_PREFIX}${token}`;
   }
 
   /**
@@ -335,17 +329,37 @@ class Utils {
   }
 
   /**
-   * Parses a request-sheet name such as "T9.2026" into its month/year parts.
+   * Matches a month token "T{n}.{yyyy}" at the END of a sheet name so both
+   * canonical names ("Request Tool mới T8.2026", "T8.2026") and prefixed
+   * copies ("Copy of T8.2026", "Dev SEO T7.2026") resolve correctly.
+   * @returns {RegExp}
+   */
+  static getRequestSheetNamePattern() {
+    return new RegExp(`${Config.REQUEST_SHEET_PREFIX}(\\d{1,2})\\.(\\d{4})$`, 'i');
+  }
+
+  /**
+   * @param {string} sheetName
+   * @returns {{month:number, year:number}|null}
+   */
+  static matchRequestSheetName(sheetName) {
+    const match = String(sheetName || '').match(Utils.getRequestSheetNamePattern());
+    if (!match) return null;
+    return { month: Number(match[1]), year: Number(match[2]) };
+  }
+
+  /**
+   * Parses a request-sheet name such as "Request Tool mới T9.2026" or
+   * legacy "T9.2026" into its month/year parts.
    * @param {string} sheetName
    * @returns {{month:number, year:number}}
    */
   static parseSheetName(sheetName) {
-    const pattern = new RegExp(`^${Config.REQUEST_SHEET_PREFIX}(\\d{1,2})\\.(\\d{4})$`, 'i');
-    const match = String(sheetName || '').match(pattern);
-    if (!match) {
+    const parsed = Utils.matchRequestSheetName(sheetName);
+    if (!parsed) {
       throw new Error(`Utils.parseSheetName: cannot parse sheet name "${sheetName}".`);
     }
-    return { month: Number(match[1]), year: Number(match[2]) };
+    return parsed;
   }
 
   // ---------------------------------------------------------------------
@@ -437,7 +451,12 @@ class Utils {
       const ui = SpreadsheetApp.getUi();
       ui.alert(title, message, ui.ButtonSet.OK);
     } catch (error) {
-      AppLogger.warning(`Utils.showAlert: ${error.message}`);
+      // Surface in Execution log — do NOT swallow silently (editor runs often
+      // cannot open UI dialogs; Admin still needs to see the message).
+      AppLogger.error(`Utils.showAlert failed (${title}): ${message} | UI error: ${error.message}`);
+      throw new UserFacingError(
+        `${title}\n\n${message}\n\n(Không mở được hộp thoại — hãy chạy từ menu 🛠️ Admin Tools trên Google Sheet, không bấm Run trong Apps Script editor.)`
+      );
     }
   }
 
@@ -453,8 +472,12 @@ class Utils {
       const response = ui.alert(title, message, ui.ButtonSet.YES_NO);
       return response === ui.Button.YES;
     } catch (error) {
-      AppLogger.warning(`Utils.showConfirm: ${error.message}`);
-      return false;
+      // Previously returned `false`, which looked like "user cancelled" and
+      // stopped Generate with no explanation after reading approved tools.
+      AppLogger.error(`Utils.showConfirm failed (${title}): ${error.message}`);
+      throw new UserFacingError(
+        `${title}\n\n${message}\n\n(Không mở được hộp thoại xác nhận — hãy chạy từ menu 🛠️ Admin Tools trên Google Sheet, không bấm Run trong Apps Script editor.)`
+      );
     }
   }
 

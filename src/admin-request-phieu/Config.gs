@@ -29,9 +29,17 @@ class Config {
     return 'QUẢN LÝ TOOLS';
   }
 
-  /** @returns {string} Prefix used to build a request-sheet name, e.g. "T9.2026". */
+  /** @returns {string} Month-token prefix inside a request-sheet name, e.g. "T" in "T9.2026". */
   static get REQUEST_SHEET_PREFIX() {
     return 'T';
+  }
+
+  /**
+   * @returns {string} Human-readable title prefix for generated request sheets.
+   * Full name example: "Request Tool mới T8.2026".
+   */
+  static get REQUEST_SHEET_TITLE_PREFIX() {
+    return 'Request Tool mới ';
   }
 
   /** @returns {string} Prefix used to build the renewal checkbox header, e.g. "Request Gia hạn T9". */
@@ -72,9 +80,12 @@ class Config {
     return '📨 Tạo tin nhắn Head duyệt';
   }
 
-  /** @returns {string} Menu item label that opens the "Request mua Tool mới" form. */
+  /**
+   * @returns {string} Menu item: build "đề xuất mua Tool mới" message from the
+   * generated sheet "Request Tool mới T{n}.{yyyy}".
+   */
   static get MENU_ITEM_NEW_TOOL_REQUEST() {
-    return '🆕 Tạo tin nhắn Request mua Tool mới';
+    return '🆕 GỬI TIN NHẮN ĐỀ XUẤT MUA TOOL MỚI';
   }
 
   // ---------------------------------------------------------------------
@@ -135,7 +146,11 @@ class Config {
   // ---------------------------------------------------------------------
 
   /**
-   * Canonical header names of a monthly request sheet (T{n}.{yyyy}).
+   * Canonical header names of a monthly request sheet
+   * ("Request Tool mới T{n}.{yyyy}" or legacy "T{n}.{yyyy}").
+   * Extra columns used by the "đề xuất mua Tool mới" message are appended
+   * at the end so TemplateService can copy an older template and
+   * RequestService.ensureMessageColumns_() can add any that are missing.
    * @returns {Object<string,string>}
    */
   static get REQUEST_HEADERS() {
@@ -161,6 +176,13 @@ class Config {
       ID_BOKT: 'ID BOKT',
       TINH_TRANG_THANH_TOAN: 'Tình trạng thanh toán',
       NGAY_GIA_HAN: 'Ngày gia hạn',
+      // --- columns for "GỬI TIN NHẮN ĐỀ XUẤT MUA TOOL MỚI" ---
+      TEAM_TAG: 'Team / Phòng ban',
+      BRAND_TRIEN_KHAI: 'Brand triển khai',
+      THOI_GIAN_TRIEN_KHAI: 'Thời gian triển khai',
+      STK: 'STK',
+      TEN_NGUOI_NHAN: 'Tên người nhận',
+      TEN_NGAN_HANG: 'Tên ngân hàng',
     };
   }
 
@@ -315,6 +337,12 @@ class Config {
       { target: REQUEST.ID_BOKT, strategy: 'MANUAL' },
       { target: REQUEST.TINH_TRANG_THANH_TOAN, strategy: 'MANUAL' },
       { target: REQUEST.NGAY_GIA_HAN, strategy: 'SOURCE', sourceHeader: TRACKER.LICH_GIA_HAN },
+      { target: REQUEST.TEAM_TAG, strategy: 'CONSTANT', value: Config.NEW_TOOL_DEFAULT_TEAM_TAG },
+      { target: REQUEST.BRAND_TRIEN_KHAI, strategy: 'CONSTANT', value: Config.NEW_TOOL_REQUEST_DEFAULT_BRAND },
+      { target: REQUEST.THOI_GIAN_TRIEN_KHAI, strategy: 'DEPLOY_WINDOW' },
+      { target: REQUEST.STK, strategy: 'MANUAL' },
+      { target: REQUEST.TEN_NGUOI_NHAN, strategy: 'MANUAL' },
+      { target: REQUEST.TEN_NGAN_HANG, strategy: 'MANUAL' },
     ];
   }
 
@@ -383,27 +411,31 @@ class Config {
   }
 
   // ---------------------------------------------------------------------
-  // "Request mua Tool mới" message (NewToolRequestService) - built ENTIRELY
-  // from an on-screen form, never from any sheet - a brand-new tool has no
-  // tracker/request-sheet row yet at the time this message is sent.
+  // "GỬI TIN NHẮN ĐỀ XUẤT MUA TOOL MỚI" — reads sheet
+  // "Request Tool mới T{n}.{yyyy}" (filled via Generate from QUẢN LÝ TOOLS).
   // ---------------------------------------------------------------------
 
-  /** @returns {string} Default "Brand triển khai" value pre-filled in the form. */
+  /** @returns {string} Default `[Team]` tag in the proposal message subject. */
+  static get NEW_TOOL_DEFAULT_TEAM_TAG() {
+    return 'SEO TECH';
+  }
+
+  /** @returns {string} Default "Brand triển khai" written on Generate. */
   static get NEW_TOOL_REQUEST_DEFAULT_BRAND() {
     return 'All brand';
   }
 
-  /** @returns {string} Default currency pre-filled in the form (Price/GTGT/TOTAL all share one currency). */
+  /** @returns {string} Currency suffix in the proposal message. */
   static get NEW_TOOL_REQUEST_DEFAULT_CURRENCY() {
     return 'USD';
   }
 
-  /** @returns {number} Default VAT percentage pre-filled in the form (Vietnam's standard VAT rate). */
+  /** @returns {number} VAT percent used to compute GTGT / TOTAL in the message. */
   static get NEW_TOOL_REQUEST_DEFAULT_VAT_PERCENT() {
     return 10;
   }
 
-  /** @returns {string} Closing lines appended to the end of the "Request mua Tool mới" message. */
+  /** @returns {string} Closing lines of the proposal message. */
   static get NEW_TOOL_REQUEST_CLOSING() {
     return 'Nhờ anh duyệt giúp em đề xuất mua Tool mới này ạ.\nCám ơn anh!';
   }
