@@ -130,15 +130,16 @@ thêm SAU nhóm "Gia hạn") bị bỏ sót hoàn toàn — không phải do l�
 ## 2. Kiến trúc đề xuất
 
 ```
-Config.gs           - Hằng số, tên header, bảng mapping cột (single source of truth)
-Utils.gs            - Header lookup, copy template, format ngày/tiền, UI helper, Logger
-DataService.gs      - Đọc Task_Management_Tracker, lọc tool được tick
-TemplateService.gs  - Tìm & copy sheet mẫu "tháng gần nhất"
-SheetGenerator.gs   - Ghi dữ liệu vào sheet mới (tự tìm vùng ghi từ công thức TOTAL)
-RequestService.gs   - Orchestrator: nối toàn bộ luồng nghiệp vụ Generate Request Sheet
-MessageService.gs   - Đọc sheet Request đã tạo/đã sửa -> build tin nhắn Lead/Head duyệt
-Menu.gs             - onOpen() - tạo menu "🛠️ Admin Tools"
-Code.gs             - Global handler cho menu (mỏng, chỉ gọi *Service + hiển thị Dialog)
+Config.gs               - Hằng số, tên header, bảng mapping cột (single source of truth)
+Utils.gs                - Header lookup, copy template, format ngày/tiền, UI helper, Logger
+DataService.gs          - Đọc Task_Management_Tracker, lọc tool được tick
+TemplateService.gs      - Tìm & copy sheet mẫu "tháng gần nhất"
+SheetGenerator.gs       - Ghi dữ liệu vào sheet mới (tự tìm vùng ghi từ công thức TOTAL)
+RequestService.gs       - Orchestrator: nối toàn bộ luồng nghiệp vụ Generate Request Sheet
+MessageService.gs       - Đọc sheet Request đã tạo/đã sửa -> build tin nhắn Lead/Head duyệt
+NewToolRequestService.gs- Form nhập tay -> build tin nhắn Request mua Tool mới (KHÔNG đọc sheet)
+Menu.gs                 - onOpen() - tạo menu "🛠️ Admin Tools"
+Code.gs                 - Global handler cho menu (mỏng, chỉ gọi *Service + hiển thị Dialog)
 ```
 
 Nguyên tắc SOLID áp dụng:
@@ -164,6 +165,7 @@ Nguyên tắc SOLID áp dụng:
 | `SheetGenerator` | SheetGenerator.gs | Ghi dữ liệu vào sheet mới |
 | `RequestService` | RequestService.gs | Điều phối toàn bộ luồng Generate Request Sheet |
 | `MessageService` | MessageService.gs | Đọc sheet Request đã generate/đã sửa, build tin nhắn Lead/Head duyệt |
+| `NewToolRequestService` | NewToolRequestService.gs | Build tin nhắn "Request mua Tool mới" từ dữ liệu Form nhập tay (không đọc/ghi sheet) |
 
 ## 4. Luồng xử lý (Generate Request Sheet)
 
@@ -240,17 +242,66 @@ onCreateLeadMessageClick() / onCreateHeadMessageClick()  [Code.gs]
 - "TỔNG CẦN THANH TOÁN" luôn là tổng cột "Giá USD" của **toàn bộ** tool đã
   điền (cả 2 tin nhắn dùng cùng 1 tổng, kể cả Topup Credit).
 
-## 6. Cài đặt
+## 6. Luồng xử lý (Tạo tin nhắn Request mua Tool mới)
+
+`NewToolRequestService` **không đọc/ghi bất kỳ sheet nào** - một Tool hoàn
+toàn MỚI chưa có dòng nào trong `Task_Management_Tracker` hay bất kỳ sheet
+Request nào tại thời điểm cần gửi tin xin duyệt, nên toàn bộ dữ liệu đến từ
+một **Form nhập tay** hiện ngay trong 1 dialog:
+
+```
+onCreateNewToolRequestClick()  [Code.gs]
+  └─ NewToolRequestService.getFormHtml() -> hiện dialog (view "form")
+       (Admin điền: Team/Phòng ban, Tên tool, Thông tin gói/Tính năng,
+        Tháng đề xuất, ID phiếu, Thời gian triển khai, Brand triển khai,
+        Giá, Đơn vị tiền, GTGT%, STK/Tên người nhận/Tên ngân hàng, Note)
+  Admin bấm "Tạo tin nhắn"
+  └─ (client-side JS) google.script.run.buildNewToolRequestMessage(formData)
+        └─ [Code.gs] buildNewToolRequestMessage(formData)   <- top-level function,
+             google.script.run KHÔNG gọi được method của class trực tiếp
+             └─ NewToolRequestService.buildMessage(formData)
+                   - validate đủ 5 nhóm trường bắt buộc, throw UserFacingError
+                     (liệt kê rõ tên MỌI trường còn thiếu) nếu sai
+                   - GTGT = Price * VAT% ; TOTAL = Price + GTGT
+                   - build text đúng theo mẫu Admin cung cấp
+  - Thành công -> cùng dialog tự chuyển sang view "result" (Textarea + nút Copy)
+  - Lỗi (thiếu trường) -> hiện lỗi NGAY TRONG form (không mất dữ liệu đã điền,
+    không mở thêm dialog nào khác)
+```
+
+**Quy ước khi build tin nhắn:**
+
+- 5 nhóm trường bắt buộc (theo yêu cầu): **Tên tool**, **Thông tin gói /
+  Tính năng**, **Giá**, **Thời gian triển khai**, **Phương thức thanh toán**
+  (tính đủ khi có ĐỦ CẢ 3: STK + Tên người nhận + Tên ngân hàng). Ngoài ra
+  **Team/Phòng ban** (tag trong `[...]` ở đầu tin) cũng bắt buộc vì tin
+  nhắn không có nghĩa nếu thiếu.
+- **Brand triển khai** mặc định `Config.NEW_TOOL_REQUEST_DEFAULT_BRAND`
+  (`"All brand"`), **Đơn vị tiền** mặc định `Config.NEW_TOOL_REQUEST_DEFAULT_CURRENCY`
+  (`"USD"`), **GTGT %** mặc định `Config.NEW_TOOL_REQUEST_DEFAULT_VAT_PERCENT`
+  (`10`) - cả 3 đều hiện sẵn trong Form, Admin có thể sửa trước khi bấm
+  "Tạo tin nhắn".
+- **ID phiếu** và **Note** là 2 dòng DUY NHẤT bị **ẩn hoàn toàn** khỏi tin
+  nhắn nếu để trống (mọi trường khác luôn xuất hiện, kể cả khi rỗng).
+- **Tháng đề xuất** dùng input `<input type="month">` (HTML5) để có UI chọn
+  tháng gọn, tự động đổi từ giá trị gốc `"YYYY-MM"` sang đúng chữ
+  `"MM/YYYY"` mà tin nhắn cần; nếu để trống, tự dùng tháng hiện tại.
+- **Tên tool** được viết HOA tự động CHỈ ở dòng tiêu đề (`NCC AHREFS`),
+  giữ nguyên chữ hoa/thường Admin gõ ở mọi chỗ khác trong tin nhắn.
+
+## 7. Cài đặt
 
 1. Mở Google Sheet **M5 - DevSEO - Software Info** → **Extensions → Apps Script**.
-2. Tạo 9 file Script đúng tên: `Config`, `Utils`, `DataService`,
+2. Tạo 10 file Script đúng tên: `Config`, `Utils`, `DataService`,
    `TemplateService`, `SheetGenerator`, `RequestService`, `MessageService`,
-   `Menu`, `Code`. Copy nội dung tương ứng từ thư mục này vào từng file.
+   `NewToolRequestService`, `Menu`, `Code`. Copy nội dung tương ứng từ thư
+   mục này vào từng file.
 3. Bật hiển thị manifest (**Project Settings ⚙️ → Show 'appsscript.json'**),
    paste nội dung `appsscript.json`.
 4. Lưu (`Ctrl+S`), tải lại Google Sheet.
-5. Menu **🛠️ Admin Tools** xuất hiện với 3 mục: **📄 Generate Request
-   Sheet**, **💬 Tạo tin nhắn Lead duyệt**, **📨 Tạo tin nhắn Head duyệt**.
+5. Menu **🛠️ Admin Tools** xuất hiện với 4 mục: **📄 Generate Request
+   Sheet**, **💬 Tạo tin nhắn Lead duyệt**, **📨 Tạo tin nhắn Head duyệt**,
+   **🆕 Tạo tin nhắn Request mua Tool mới**.
 6. Trong `Task_Management_Tracker`, tick các checkbox ở cột
    `Request Gia hạn T{tháng kế tiếp}` cho tool cần tạo Request.
 7. Chạy **🛠️ Admin Tools → 📄 Generate Request Sheet**. Lần đầu chạy sẽ có popup
@@ -260,8 +311,12 @@ onCreateLeadMessageClick() / onCreateHeadMessageClick()  [Code.gs]
 9. Vẫn đang ở tab sheet Request đó, chạy **🛠️ Admin Tools → 💬 Tạo tin nhắn
    Lead duyệt** (hoặc **📨 Tạo tin nhắn Head duyệt**) → dialog hiện tin nhắn,
    bấm **📋 Copy nội dung** rồi dán vào chat.
+10. Với Tool hoàn toàn mới (chưa có trong `Task_Management_Tracker`), chạy
+    **🛠️ Admin Tools → 🆕 Tạo tin nhắn Request mua Tool mới** ở BẤT KỲ sheet
+    nào (không cần mở sheet Request) → điền Form → bấm "Tạo tin nhắn" →
+    bấm **📋 Copy nội dung** rồi dán vào chat.
 
-## 7. Hiệu năng & Logging
+## 8. Hiệu năng & Logging
 
 - Đọc dữ liệu: đúng **1 lần** `getValues()` cho toàn bộ tracker.
 - Ghi dữ liệu: đúng **1 lần** `setValues()` cho toàn bộ các dòng mới — không
@@ -270,7 +325,7 @@ onCreateLeadMessageClick() / onCreateHeadMessageClick()  [Code.gs]
   copy template, mở rộng vùng ghi, ghi dữ liệu) — tắt hoàn toàn bằng
   `Config.ENABLE_LOGGING = false` nếu cần.
 
-## 8. Kiểm thử
+## 9. Kiểm thử
 
 Do không thể chạy trực tiếp trên Google Apps Script trong môi trường phát
 triển này, toàn bộ luồng đã được mô phỏng bằng Node.js (`vm` module chạy
@@ -323,9 +378,27 @@ trên) — mọi phép giãn công thức trong test phải đến từ chính
 - **Sheet Request tồn tại nhưng chưa có Tool nào** (mọi slot còn trống) →
   `UserFacingError` báo rõ tên sheet.
 
-Toàn bộ 9 file `.gs` pass `node --check`.
+**`NewToolRequestService` (tin nhắn Request mua Tool mới)** — test THUẦN
+logic (không cần mock `Sheet`/`Spreadsheet` gì cả, vì class này không đọc/
+ghi sheet), dùng ĐÚNG dữ liệu mẫu Admin cung cấp (AHREFS/SEO TECH):
 
-## 9. Mở rộng (roadmap, xem chi tiết trong `Code.gs`)
+- **Khớp mẫu 100%**: build từ đúng dữ liệu mẫu → message ra **giống Y NGUYÊN
+  từng ký tự** với mẫu Admin đã cung cấp (so sánh string bằng `===`).
+- **Áp dụng default đúng**: để trống Brand/Đơn vị tiền/GTGT% → tự điền
+  "All brand"/"USD"/10% từ `Config`; để trống "Tháng đề xuất" → tự dùng
+  tháng hiện tại (không để lại chuỗi rỗng/khoảng trắng thừa trên dòng tiêu đề).
+- **GTGT/TOTAL tính đúng**: `GTGT = Price * VAT%`, `TOTAL = Price + GTGT`,
+  kể cả khi VAT = 0%.
+- **"ID phiếu"/"Note" ẩn hoàn toàn** khỏi tin nhắn khi để trống (mọi trường
+  khác luôn hiện, không có trường tuỳ chọn nào khác bị ẩn).
+- **Validation liệt kê ĐỦ mọi trường thiếu** trong 1 `UserFacingError` duy
+  nhất khi để trống toàn bộ Form; validation cũng bắt được trường hợp
+  "Phương thức thanh toán" chỉ điền 2/3 trường (STK + Tên ngân hàng nhưng
+  thiếu Tên người nhận) và "Giá" = 0.
+
+Toàn bộ 10 file `.gs` pass `node --check`.
+
+## 10. Mở rộng (roadmap, xem chi tiết trong `Code.gs`)
 
 Thêm tính năng mới (Generate BOKT, Generate Email, Generate Telegram Message,
 Export PDF/Excel, Archive Sheet, Auto gửi Gmail) chỉ cần:

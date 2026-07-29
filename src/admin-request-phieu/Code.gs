@@ -95,3 +95,38 @@ function onCreateHeadMessageClick() {
     }
   }
 }
+
+/**
+ * Menu handler for "Admin Tools -> Tạo tin nhắn Request mua Tool mới".
+ * Opens NewToolRequestService's input-form dialog. Unlike every other menu
+ * handler in this file, no sheet is read here - the form itself calls
+ * buildNewToolRequestMessage() (below) via google.script.run and swaps to
+ * a copyable result view in-place, so this function's only job is to show
+ * the initial HTML.
+ */
+function onCreateNewToolRequestClick() {
+  try {
+    const html = NewToolRequestService.getFormHtml();
+    const output = HtmlService.createHtmlOutput(html).setWidth(480).setHeight(680);
+    SpreadsheetApp.getUi().showModalDialog(output, '🆕 Request mua Tool mới');
+  } catch (error) {
+    AppLogger.error(`onCreateNewToolRequestClick: ${error.message}`);
+    Utils.showAlert('Đã xảy ra lỗi', error.message);
+  }
+}
+
+/**
+ * google.script.run endpoint called by NewToolRequestService.getFormHtml()'s
+ * client-side JS when Admin clicks "Tạo tin nhắn". Must be a top-level
+ * function (google.script.run cannot call a class's static method
+ * directly) - deliberately does NOT catch errors with Utils.showAlert()
+ * like every other handler above: a thrown UserFacingError (e.g. a missing
+ * required field) is serialized straight back to the dialog's own
+ * withFailureHandler() and shown INLINE in the form, instead of stacking a
+ * second alert dialog on top of the still-open form dialog.
+ * @param {Object} formData - Raw field values submitted by the form.
+ * @returns {{message: string}}
+ */
+function buildNewToolRequestMessage(formData) {
+  return NewToolRequestService.buildMessage(formData);
+}

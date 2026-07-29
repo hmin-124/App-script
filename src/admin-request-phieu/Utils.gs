@@ -369,22 +369,45 @@ class Utils {
   }
 
   /**
-   * Formats a USD amount for chat messages - thousand separators, but no
-   * forced trailing ".00" (matches the sample messages: "$497", "$220",
-   * not "$497.00"), while still showing up to 2 decimals when the amount
-   * actually has cents (e.g. "$20.9").
+   * Formats a plain amount for chat messages - thousand separators, but no
+   * forced trailing ".00" (matches the sample messages: "497", "220", not
+   * "497.00"), while still showing up to 2 decimals when the amount
+   * actually has cents (e.g. "20.9"). No currency symbol/suffix is added -
+   * callers append their own (see formatUsdAmount, NewToolRequestService).
+   * @param {number} amount
+   * @returns {string} e.g. "1,283.5".
+   */
+  static formatAmount(amount) {
+    try {
+      const numeric = Number(amount) || 0;
+      return numeric.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    } catch (error) {
+      AppLogger.warning(`Utils.formatAmount: ${error.message}`);
+      return String(amount);
+    }
+  }
+
+  /**
+   * Formats a USD amount for chat messages, "$"-prefixed - see
+   * formatAmount() for the underlying number-formatting rules.
    * @param {number} amount
    * @returns {string} e.g. "$1,283.5".
    */
   static formatUsdAmount(amount) {
-    try {
-      const numeric = Number(amount) || 0;
-      const formatted = numeric.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-      return `$${formatted}`;
-    } catch (error) {
-      AppLogger.warning(`Utils.formatUsdAmount: ${error.message}`);
-      return `$${amount}`;
-    }
+    return `$${Utils.formatAmount(amount)}`;
+  }
+
+  /**
+   * Formats a Date as "dd/MM/yyyy" (Vietnamese convention used in every
+   * date shown to Admin, e.g. "Thời gian triển khai: Từ 29/07/2026 - ...").
+   * @param {Date} date
+   * @returns {string}
+   */
+  static formatDateDDMMYYYY(date) {
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
   }
 
   // ---------------------------------------------------------------------

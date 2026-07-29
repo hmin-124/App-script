@@ -22,6 +22,7 @@ function onOpen() {
       .addItem(Config.MENU_ITEM_GENERATE, 'onGenerateRequestSheetClick')
       .addItem(Config.MENU_ITEM_LEAD_MESSAGE, 'onCreateLeadMessageClick')
       .addItem(Config.MENU_ITEM_HEAD_MESSAGE, 'onCreateHeadMessageClick')
+      .addItem(Config.MENU_ITEM_NEW_TOOL_REQUEST, 'onCreateNewToolRequestClick')
       // Future menu items can be appended here, e.g.:
       // .addItem('Generate BOKT', 'onGenerateBoktClick')
       // .addItem('Archive Sheet', 'onArchiveSheetClick')

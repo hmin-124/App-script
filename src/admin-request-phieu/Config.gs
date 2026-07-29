@@ -66,6 +66,11 @@ class Config {
     return '📨 Tạo tin nhắn Head duyệt';
   }
 
+  /** @returns {string} Menu item label that opens the "Request mua Tool mới" form. */
+  static get MENU_ITEM_NEW_TOOL_REQUEST() {
+    return '🆕 Tạo tin nhắn Request mua Tool mới';
+  }
+
   // ---------------------------------------------------------------------
   // Logging
   // ---------------------------------------------------------------------
@@ -369,5 +374,31 @@ class Config {
   /** @returns {string} Closing lines appended to the end of the "Head duyệt" message. */
   static get MESSAGE_HEAD_CLOSING() {
     return 'Nhờ anh duyệt giúp em các phiếu tool trên. Các phiếu này đã được Lead phê duyệt ạ!\nCám ơn anh!';
+  }
+
+  // ---------------------------------------------------------------------
+  // "Request mua Tool mới" message (NewToolRequestService) - built ENTIRELY
+  // from an on-screen form, never from any sheet - a brand-new tool has no
+  // tracker/request-sheet row yet at the time this message is sent.
+  // ---------------------------------------------------------------------
+
+  /** @returns {string} Default "Brand triển khai" value pre-filled in the form. */
+  static get NEW_TOOL_REQUEST_DEFAULT_BRAND() {
+    return 'All brand';
+  }
+
+  /** @returns {string} Default currency pre-filled in the form (Price/GTGT/TOTAL all share one currency). */
+  static get NEW_TOOL_REQUEST_DEFAULT_CURRENCY() {
+    return 'USD';
+  }
+
+  /** @returns {number} Default VAT percentage pre-filled in the form (Vietnam's standard VAT rate). */
+  static get NEW_TOOL_REQUEST_DEFAULT_VAT_PERCENT() {
+    return 10;
+  }
+
+  /** @returns {string} Closing lines appended to the end of the "Request mua Tool mới" message. */
+  static get NEW_TOOL_REQUEST_CLOSING() {
+    return 'Nhờ anh duyệt giúp em đề xuất mua Tool mới này ạ.\nCám ơn anh!';
   }
 }
