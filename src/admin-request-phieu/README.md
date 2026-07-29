@@ -1,0 +1,417 @@
+# Admin Request Phiếu — DevSEO Software Info
+
+Công cụ Google Apps Script tự động tạo Sheet Request thanh toán tool hàng
+tháng cho file **M5 - DevSEO - Software Info**, dựa trên checkbox admin tick
+trong sheet tracker (`Config.TRACKER_SHEET_NAME`, hiện là **`QUẢN LÝ
+TOOLS`** — sheet này ban đầu tên `Task_Management_Tracker`, đã được Admin
+đổi tên; toàn bộ code chỉ resolve sheet này qua MỘT hằng số duy nhất
+`Config.TRACKER_SHEET_NAME`, nên đổi tên sheet lần sau chỉ cần sửa đúng 1
+dòng đó trong `Config.gs`, không phải sửa `DataService`/`RequestService`).
+
+## 1. Phân tích cấu trúc dữ liệu (từ file đã upload)
+
+### Sheet tracker (`QUẢN LÝ TOOLS`, trước đây tên `Task_Management_Tracker`)
+
+- **Header thật nằm ở dòng 12** (dòng 1-11 là một bảng khác — danh sách tài
+  khoản 2FA — không liên quan đến luồng Request). Vì vậy code luôn **tự dò
+  dòng header** (`Utils.detectHeaderRow`), không giả định cố định dòng 1.
+- Các cột quan trọng (đọc theo tên, xem `Config.TRACKER_HEADERS`): `Brand`,
+  `Type`, `Link mua`, `Mô tả Công Cụ`, `Mục đích sử dụng`, `Cost/month (USD)`,
+  `MONTH`, `Số lượng`, `TOTAL COST/term(USD)`, `Gia Hạn`, `Lịch Gia Hạn`,
+  `Email`, `PW`, `Status`, `Request Gia hạn T8`, `Ghi Chú`.
+- Dữ liệu được **nhóm theo section** bằng các dòng chỉ có cột `Brand` (ví dụ
+  `M8 TECH`, `Martech`, `M6 TECH`) — các dòng này có `Type` trống, khác với
+  dòng dữ liệu thật luôn có `Type` = `Tool`/`Software`. `DataService` nhận
+  diện và bỏ qua các dòng này, nhưng vẫn ghi nhớ section để suy ra
+  **"Vị trí sử dụng"** cho các dòng thuộc section đó.
+- Cột checkbox tên **"Request Gia hạn T{n}"** đổi theo tháng (T8, T9, T10...).
+
+### Sheet mẫu `T7.2026` / `T8.2026`
+
+- 21 cột, header giống nhau 100% giữa 2 sheet (xem `Config.REQUEST_HEADERS`).
+- Bố cục: dòng 1 = header, dòng 2 = dòng trống (spacer), dòng 3.. = dữ liệu,
+  sau đó là dòng **`TOTAL`** với công thức `=sum(H3:H11)` (hoặc `H3:H12` ở
+  T7.2026) — **vùng dữ liệu ghi được luôn được suy ra trực tiếp từ chính công
+  thức này**, không hardcode số dòng.
+- Có Data Validation (dropdown) trên `Loại thanh toán`, `Loại gia hạn`,
+  `Tình trạng thanh toán`; Conditional Formatting trên `Tình trạng thanh
+  toán`; Freeze Column tới cột D. Toàn bộ được giữ nguyên 100% vì công cụ
+  dùng `Sheet.copyTo()` (native Apps Script) để nhân bản sheet — **không có
+  dòng code nào tự dựng lại format**.
+
+### Mapping không 1:1 (đã surface rõ trong `Config.COLUMN_MAPPING`)
+
+Một số cột của sheet Request không có cột nguồn tương ứng trực tiếp trong
+tracker — đây là các trường hợp cần quyết định nghiệp vụ, được tài liệu hoá
+minh bạch ngay trong `Config.gs` (không giấu trong logic service):
+
+| Cột Request | Cách xử lý | Vì sao |
+| --- | --- | --- |
+| `Vị trí sử dụng` | Hằng số `Config.DEFAULT_VI_TRI_SU_DUNG` = `"Dev M5"` | Theo xác nhận trực tiếp của Admin — toàn bộ workbook thuộc team M5, không suy ra theo section trong tracker |
+| `Loại thanh toán` | Để trống (`MANUAL`) | Không có cột nguồn đáng tin cậy để phân biệt "Mua mới"/"Gia hạn" tự động — Admin tự chọn từ Dropdown sẵn có trên sheet sau khi tạo |
+| `Loại gia hạn` | Dịch từ cột `Gia Hạn` (tiếng Anh) trong tracker qua `Config.RENEWAL_TYPE_MAP` (`Monthly` → `"Mua theo tháng"`, `Yearly` → `"Mua theo năm"`, `Quarterly` → `"Mua theo quý"`) | Dropdown chỉ nhận các giá trị tiếng Việt cụ thể trong danh sách Data Validation thật của sheet (xem đúng danh sách trong comment `RENEWAL_TYPE_MAP`) — copy nguyên tiếng Anh hoặc dịch sai từ ngữ đều bị Google Sheets từ chối. Giá trị không dịch được (ví dụ `"N/A"`) → để **trống** (không viết chữ bừa, vì Dropdown này `allowBlank = true`) |
+| `Thông tin thanh toán` | Hằng số `Config.DEFAULT_THONG_TIN_THANH_TOAN` = `"Thẻ visa"` | Giá trị này giống nhau ở MỌI dòng hiện có trong T7.2026/T8.2026 |
+| `Giá VNĐ`, `Chi phí thanh toán thực tế`, `Thanh toán vượt Dự Toán`, `Lý do`, `Link tải hóa đơn`, `ID BOKT`, `Tình trạng thanh toán` | Để trống (`MANUAL`) | Đây là các trường Finance/Admin điền SAU KHI duyệt/thanh toán — không có trong tracker vì bản chất là dữ liệu phát sinh sau |
+
+Muốn đổi bất kỳ quy tắc nào ở trên, chỉ cần sửa **`Config.gs`** — không cần
+sửa `RequestService`/`SheetGenerator`/`DataService`.
+
+> `Config.SECTION_POSITION_MAP` (map section → "Vị trí sử dụng") vẫn được
+> giữ lại trong code (không dùng trong `COLUMN_MAPPING` hiện tại) để dễ dùng
+> lại nếu nghiệp vụ thay đổi sau này — `ToolRecord.section` vẫn được theo dõi
+> cho từng dòng.
+
+### Bug đã fix (báo cáo ngày 21/07/2026)
+
+1. **Đếm sai số Tool** ("Tổng số Tool: 21" nhưng chỉ 4 dòng có data thật):
+   nguyên nhân là hàm bỏ-qua-dòng-trống cũ kiểm tra "mọi cell đều rỗng", nhưng
+   **ô checkbox trong Google Sheets luôn có giá trị boolean (`TRUE`/`FALSE`),
+   không bao giờ thực sự rỗng** — nên nếu vùng checkbox bị kéo dài xuống quá
+   số dòng dữ liệu thật (rất dễ xảy ra khi kéo-thả checkbox), các dòng trống
+   phía dưới vẫn bị tính là "tool hợp lệ" nếu vô tình có checkbox = `TRUE`.
+   **Fix**: `DataService._readAllRows()` giờ chỉ coi một dòng là tool thật khi
+   cột **"Brand"** có giá trị — không phụ thuộc vào việc mọi cell có rỗng
+   hay không.
+2. **Lỗi Data Validation ở cột "Loại gia hạn" (2 vòng fix)**:
+   - *Vòng 1*: bản đầu tự dịch giá trị `Gia Hạn` sang tiếng Việt qua 1 bảng
+     map, nhưng khi tracker có giá trị không nằm trong map (ví dụ `"N/A"`,
+     thấy thật trên dòng "Geelark") thì fallback ghi CHỮ `"N/A"` — không phải
+     giá trị Dropdown hợp lệ → bị từ chối.
+   - *Vòng 2*: tưởng nhầm là do "dịch sai", nên đổi sang copy NGUYÊN giá trị
+     gốc tiếng Anh (`Monthly`/`Yearly`) — nhưng Dropdown chỉ nhận tiếng Việt,
+     nên **mọi dòng** đều bị từ chối, nặng hơn trước.
+   - *Fix cuối cùng*: xác nhận đúng danh sách Dropdown THẬT (đọc trực tiếp từ
+     popup lỗi Google Sheets hiển thị: `Mua theo tháng, Mua theo năm, Mua
+     credit, Sử dụng trước, thanh toán sau, Theo số lượng users, Theo dung
+     lượng sd, Mua theo quý, Mua một lần`), dịch đúng theo danh sách này qua
+     `Config.RENEWAL_TYPE_MAP`, và đổi fallback từ `"N/A"` thành **chuỗi
+     rỗng** (Dropdown này cho phép để trống — `allowBlank = true`).
+
+### Bug đã fix (báo cáo ngày 21/07/2026, vòng 2) — tin nhắn chỉ đọc được 10/18 tool
+
+**Triệu chứng**: sheet Request có đủ 18 dòng tool thật (dòng 3→20, TOTAL ở
+dòng 21), nhưng tin nhắn Lead/Head duyệt chỉ liệt kê đúng 10 tool đầu tiên
+(toàn bộ nhóm "Gia hạn") — 8 tool còn lại, TRÙNG với toàn bộ nhóm "Mua mới"
+và "Topup Credit" (N8N, GOOGLECLOUD, OPENROUTER), bị thiếu hoàn toàn khỏi cả
+2 tin nhắn.
+
+**Nguyên nhân gốc**: `Utils.findDataRangeFromTotalFormula()` (dùng chung bởi
+cả `SheetGenerator` và `MessageService`) tin tưởng **hoàn toàn vào chuỗi
+công thức SUM hiện tại** ở dòng TOTAL để suy ra dòng cuối của vùng dữ liệu
+(ví dụ `=sum(H3:H12)` → `endRow = 12`). Giả định ban đầu là "Google Sheets
+tự động giãn vùng tham chiếu của công thức SUM khi chèn dòng ngay phía
+trên nó" — giả định này **SAI** khi chèn NHIỀU dòng cùng lúc bằng
+`insertRowsBefore(row, n)`: công thức vẫn giữ nguyên y chuỗi cũ
+(`=sum(H3:H12)`), dù 8 dòng mới đã được chèn thêm phía trên dòng TOTAL cho
+8 tool dư ra so với sức chứa gốc (10 dòng) của Template. Vì `MessageService`
+chỉ đọc đúng những dòng nằm trong `startRow..endRow` mà công thức "khai
+báo", 8 tool cuối (đúng là toàn bộ "Mua mới"/"Topup Credit", vì chúng được
+thêm SAU nhóm "Gia hạn") bị bỏ sót hoàn toàn — không phải do lỗi group logic
+(logic nhóm theo `Loại thanh toán` vẫn đúng, chỉ là không có dữ liệu để nhóm).
+
+**Fix**:
+1. `Utils.findDataRangeFromTotalFormula()`: **không còn tin `endRow` từ công
+   thức nữa**. `endRow` giờ luôn = `totalRowIndex - 1` (đúng theo spec: dòng
+   TOTAL luôn nằm ngay sau dòng dữ liệu cuối, không có dòng trống ở giữa) —
+   bất kể công thức SUM có được cập nhật đúng hay không. `startRow` vẫn lấy
+   từ công thức vì mốc này không bao giờ dịch (chèn dòng luôn xảy ra ngay
+   TRƯỚC dòng TOTAL, không bao giờ trước dòng dữ liệu đầu tiên).
+2. `SheetGenerator._ensureCapacity()`: sau khi `insertRowsBefore()`, giờ
+   **chủ động ghi lại (rewrite)** MỌI công thức ở dòng TOTAL có tham chiếu
+   dạng `START:END` (không chỉ cột "Giá USD" — cột "Giá VNĐ" hoặc cột khác
+   nếu có công thức tương tự cũng được cập nhật), thay vì tin vào hành vi
+   tự giãn không đáng tin cậy của Google Sheets. Nhờ vậy, chính ô TOTAL
+   hiển thị trên sheet cũng luôn đúng cho các lần Generate về sau — không
+   chỉ riêng phần đọc của `MessageService`.
+3. Sheet Request **đã tồn tại từ trước** khi fix này được áp dụng (công
+   thức TOTAL cũ bị "kẹt" ở vùng nhỏ hơn thực tế) vẫn được đọc ĐÚNG ngay lập
+   tức bởi `MessageService` sau khi cập nhật code — không cần Generate lại
+   sheet đó (tránh mất các cột Admin đã điền tay như `ID BOKT`, `Loại thanh
+   toán`). Tuy vậy, **ô TOTAL hiển thị trên chính sheet đó** sẽ vẫn hiển thị
+   sai (do công thức cũ chưa được sửa) cho tới khi Admin tự sửa lại công
+   thức đó bằng tay, hoặc Generate lại sheet.
+
+## 2. Kiến trúc đề xuất
+
+```
+Config.gs               - Hằng số, tên header, bảng mapping cột (single source of truth)
+Utils.gs                - Header lookup, copy template, format ngày/tiền, UI helper, Logger
+DataService.gs          - Đọc sheet tracker (QUẢN LÝ TOOLS), lọc tool được tick
+TemplateService.gs      - Tìm & copy sheet mẫu "tháng gần nhất"
+SheetGenerator.gs       - Ghi dữ liệu vào sheet mới (tự tìm vùng ghi từ công thức TOTAL)
+RequestService.gs       - Orchestrator: nối toàn bộ luồng nghiệp vụ Generate Request Sheet
+MessageService.gs       - Đọc sheet Request đã tạo/đã sửa -> build tin nhắn Lead/Head duyệt
+NewToolRequestService.gs- Form nhập tay -> build tin nhắn Request mua Tool mới (KHÔNG đọc sheet)
+Menu.gs                 - onOpen() - tạo menu "🛠️ Admin Tools"
+Code.gs                 - Global handler cho menu (mỏng, chỉ gọi *Service + hiển thị Dialog)
+```
+
+Nguyên tắc SOLID áp dụng:
+- **Single Responsibility**: mỗi class chỉ làm đúng 1 việc (đọc dữ liệu / tìm
+  template / ghi sheet / điều phối).
+- **Open/Closed**: thêm KPI/cột mới chỉ cần thêm 1 dòng vào
+  `Config.COLUMN_MAPPING`, không sửa logic.
+- **Dependency Injection**: mọi Service nhận `spreadsheet`/`sheet` qua
+  constructor, không tự gọi `SpreadsheetApp.getActiveSpreadsheet()` bên
+  trong nhiều nơi — dễ test, dễ tái sử dụng.
+
+## 3. Danh sách class
+
+| Class | File | Vai trò |
+| --- | --- | --- |
+| `Config` | Config.gs | Cấu hình & bảng mapping (static, không state) |
+| `Utils` | Utils.gs | Hàm dùng chung (header, copy, format, UI, clear) |
+| `AppLogger` | Utils.gs | Logger INFO/WARNING/ERROR, bật/tắt qua `Config.ENABLE_LOGGING` |
+| `UserFacingError` | Utils.gs | Lỗi nghiệp vụ hiển thị trực tiếp cho Admin |
+| `ToolRecord` | DataService.gs | 1 dòng tool trong tracker, truy cập theo tên cột |
+| `DataService` | DataService.gs | Đọc & lọc tool được tick |
+| `TemplateService` | TemplateService.gs | Tìm & copy sheet mẫu |
+| `SheetGenerator` | SheetGenerator.gs | Ghi dữ liệu vào sheet mới |
+| `RequestService` | RequestService.gs | Điều phối toàn bộ luồng Generate Request Sheet |
+| `MessageService` | MessageService.gs | Đọc sheet Request đã generate/đã sửa, build tin nhắn Lead/Head duyệt |
+| `NewToolRequestService` | NewToolRequestService.gs | Build tin nhắn "Request mua Tool mới" từ dữ liệu Form nhập tay (không đọc/ghi sheet) |
+
+## 4. Luồng xử lý (Generate Request Sheet)
+
+```
+onGenerateRequestSheetClick()  [Code.gs]
+  └─ RequestService.generateRequestSheet()
+        1. Utils.getNextMonthSheetName()/getNextMonthCode() -> "T9.2026" / "T9"
+        2. DataService.getApprovedTools("T9")
+             - detect header row trong sheet tracker (QUẢN LÝ TOOLS)
+             - bỏ qua section-divider rows, ghi nhớ section
+             - lọc rowValues["Request Gia hạn T9"] === true
+             -> throw UserFacingError nếu rỗng hoặc thiếu cột checkbox
+        3. Nếu "T9.2026" đã tồn tại -> Utils.showConfirm(...)
+             - Không đồng ý -> return null (không đổi gì)
+             - Đồng ý -> TemplateService.deleteSheetIfExists("T9.2026")
+        4. TemplateService.createSheetFromTemplate("T9.2026", 9, 2026)
+             - tìm sheet "T{n}.{yyyy}" gần nhất TRƯỚC tháng đích
+             - throw UserFacingError('Không tìm thấy Template.') nếu không có
+             - Utils.copyTemplate() -> Sheet.copyTo() (giữ 100% format/formula/validation/...)
+        5. approvedTools.map(tool => _buildRequestRow(tool, ...))
+             - áp dụng Config.COLUMN_MAPPING cho từng cột
+        6. SheetGenerator.writeRequestRows(rowValues)
+             - tìm dòng "TOTAL" (theo cột "Tên tool")
+             - đọc công thức SUM ở dòng TOTAL -> suy ra vùng dữ liệu ghi được
+             - insertRowsBefore() nếu thiếu chỗ (công thức SUM tự giãn theo cơ chế native của Sheets)
+             - Utils.clearOldData() rồi setValues() MỘT LẦN duy nhất
+  └─ Utils.showAlert('Generate Request thành công.', 'Tổng số Tool: N\n\nSheet: T9.2026')
+```
+
+## 5. Luồng xử lý (Tạo tin nhắn Lead/Head duyệt)
+
+`MessageService` KHÔNG đọc lại tracker — nó đọc trực tiếp sheet Request
+**đã được Generate và Admin đã chỉnh sửa xong** (điền `Loại thanh toán`, `ID
+BOKT`, ...), dùng đúng vùng dữ liệu mà `SheetGenerator` đã ghi (suy ra lại từ
+công thức SUM ở dòng TOTAL — `Utils.findTotalRowIndex`/
+`findDataRangeFromTotalFormula`, code CHUNG với `SheetGenerator` để 2 class
+này luôn đồng nhất "dòng nào là dữ liệu thật").
+
+```
+onCreateLeadMessageClick() / onCreateHeadMessageClick()  [Code.gs]
+  └─ MessageService.buildLeadApprovalMessage() / buildHeadApprovalMessage()
+        1. _getRequestSheet()
+             - Ưu tiên sheet ĐANG MỞ nếu tên khớp "T{n}.{yyyy}"
+             - Không thì tự tìm sheet Request MỚI NHẤT trong toàn bộ file
+             - throw UserFacingError nếu không có sheet Request nào
+        2. _readApprovalRows() - đọc đúng vùng dữ liệu (giống SheetGenerator),
+           bỏ qua các dòng slot còn trống (chưa dùng tới tháng này)
+        3a. [Lead] _groupToolsForLeadMessage() - nhóm theo "Loại thanh toán"
+            (Gia hạn/Mua mới/Topup Credit - Config.PAYMENT_CATEGORY_ORDER),
+            "Gia hạn"/"Mua mới" nhóm nhỏ tiếp theo "Loại gia hạn"
+        3b. [Head] Danh sách phẳng (không nhóm) - Head chỉ cần ID phiếu/BOKT/
+            số tiền để duyệt thanh toán
+        4. Build text theo mẫu Admin cung cấp, cộng tổng "Giá USD" mọi dòng
+  └─ Utils.showMessageDialog(title, message)  - dialog có Textarea + nút "Copy"
+```
+
+**Quy ước dữ liệu quan trọng** (đọc kỹ trước khi dùng thật):
+
+- **"ID phiếu"** trong cả 2 mẫu tin nhắn được lấy từ cột **"ID BOKT"** của
+  sheet Request — đây là cột GẦN NHẤT với khái niệm "mã phiếu" hiện có
+  trong 21 cột của Template; nếu công ty có ý nghĩa khác cho "ID phiếu"
+  (không phải "ID BOKT"), chỉ cần đổi `REQUEST.ID_BOKT` thành cột đúng trong
+  `MessageService._readApprovalRows()` — không phải sửa gì khác.
+- **"Link BOKT"** trong tin Head KHÔNG đọc từ sheet — luôn để TRỐNG
+  (`Config.MESSAGE_BOKT_LINK_PLACEHOLDER = ''`, theo yêu cầu của Admin) vì
+  sheet chưa có cột lưu link BOKT lúc này; Admin gõ/dán link thật trực tiếp
+  vào ngay sau "Link BOKT:" của từng dòng, trước khi gửi.
+- Tin **Head duyệt** là danh sách **có số thứ tự** (`1.`, `2.`, ...), mỗi
+  tool gồm đúng 2 dòng liên tiếp KHÔNG có dòng trống ở giữa các tool
+  (`N. ID phiếu: ... - Tên tool - Giá` rồi `Link BOKT: `) — chỉ có 1 dòng
+  trống duy nhất, ngay trước dòng `=> TỔNG CẦN THANH TOÁN`.
+- Ghi chú trong ngoặc sau "Chi phí" (ví dụ "(giá sau khi hết khuyến mãi)")
+  được lấy từ cột **"Lý do"** nếu có nội dung — để trống thì không hiện.
+- "TỔNG CẦN THANH TOÁN" luôn là tổng cột "Giá USD" của **toàn bộ** tool đã
+  điền (cả 2 tin nhắn dùng cùng 1 tổng, kể cả Topup Credit).
+
+## 6. Luồng xử lý (Tạo tin nhắn Request mua Tool mới)
+
+`NewToolRequestService` **không đọc/ghi bất kỳ sheet nào** - một Tool hoàn
+toàn MỚI chưa có dòng nào trong sheet tracker (QUẢN LÝ TOOLS) hay bất kỳ sheet
+Request nào tại thời điểm cần gửi tin xin duyệt, nên toàn bộ dữ liệu đến từ
+một **Form nhập tay** hiện ngay trong 1 dialog:
+
+```
+onCreateNewToolRequestClick()  [Code.gs]
+  └─ NewToolRequestService.getFormHtml() -> hiện dialog (view "form")
+       (Admin điền: Team/Phòng ban, Tên tool, Thông tin gói/Tính năng,
+        Tháng đề xuất, ID phiếu, Thời gian triển khai, Brand triển khai,
+        Giá, Đơn vị tiền, GTGT%, STK/Tên người nhận/Tên ngân hàng, Note)
+  Admin bấm "Tạo tin nhắn"
+  └─ (client-side JS) google.script.run.buildNewToolRequestMessage(formData)
+        └─ [Code.gs] buildNewToolRequestMessage(formData)   <- top-level function,
+             google.script.run KHÔNG gọi được method của class trực tiếp
+             └─ NewToolRequestService.buildMessage(formData)
+                   - validate đủ 5 nhóm trường bắt buộc, throw UserFacingError
+                     (liệt kê rõ tên MỌI trường còn thiếu) nếu sai
+                   - GTGT = Price * VAT% ; TOTAL = Price + GTGT
+                   - build text đúng theo mẫu Admin cung cấp
+  - Thành công -> cùng dialog tự chuyển sang view "result" (Textarea + nút Copy)
+  - Lỗi (thiếu trường) -> hiện lỗi NGAY TRONG form (không mất dữ liệu đã điền,
+    không mở thêm dialog nào khác)
+```
+
+**Quy ước khi build tin nhắn:**
+
+- 5 nhóm trường bắt buộc (theo yêu cầu): **Tên tool**, **Thông tin gói /
+  Tính năng**, **Giá**, **Thời gian triển khai**, **Phương thức thanh toán**
+  (tính đủ khi có ĐỦ CẢ 3: STK + Tên người nhận + Tên ngân hàng). Ngoài ra
+  **Team/Phòng ban** (tag trong `[...]` ở đầu tin) cũng bắt buộc vì tin
+  nhắn không có nghĩa nếu thiếu.
+- **Brand triển khai** mặc định `Config.NEW_TOOL_REQUEST_DEFAULT_BRAND`
+  (`"All brand"`), **Đơn vị tiền** mặc định `Config.NEW_TOOL_REQUEST_DEFAULT_CURRENCY`
+  (`"USD"`), **GTGT %** mặc định `Config.NEW_TOOL_REQUEST_DEFAULT_VAT_PERCENT`
+  (`10`) - cả 3 đều hiện sẵn trong Form, Admin có thể sửa trước khi bấm
+  "Tạo tin nhắn".
+- **ID phiếu** và **Note** là 2 dòng DUY NHẤT bị **ẩn hoàn toàn** khỏi tin
+  nhắn nếu để trống (mọi trường khác luôn xuất hiện, kể cả khi rỗng).
+- **Tháng đề xuất** dùng input `<input type="month">` (HTML5) để có UI chọn
+  tháng gọn, tự động đổi từ giá trị gốc `"YYYY-MM"` sang đúng chữ
+  `"MM/YYYY"` mà tin nhắn cần; nếu để trống, tự dùng tháng hiện tại.
+- **Tên tool** được viết HOA tự động CHỈ ở dòng tiêu đề (`NCC AHREFS`),
+  giữ nguyên chữ hoa/thường Admin gõ ở mọi chỗ khác trong tin nhắn.
+
+## 7. Cài đặt
+
+1. Mở Google Sheet **M5 - DevSEO - Software Info** → **Extensions → Apps Script**.
+2. Tạo 10 file Script đúng tên: `Config`, `Utils`, `DataService`,
+   `TemplateService`, `SheetGenerator`, `RequestService`, `MessageService`,
+   `NewToolRequestService`, `Menu`, `Code`. Copy nội dung tương ứng từ thư
+   mục này vào từng file.
+3. Bật hiển thị manifest (**Project Settings ⚙️ → Show 'appsscript.json'**),
+   paste nội dung `appsscript.json`.
+4. Lưu (`Ctrl+S`), tải lại Google Sheet.
+5. Menu **🛠️ Admin Tools** xuất hiện với 4 mục: **📄 Generate Request
+   Sheet**, **💬 Tạo tin nhắn Lead duyệt**, **📨 Tạo tin nhắn Head duyệt**,
+   **🆕 Tạo tin nhắn Request mua Tool mới**.
+6. Trong sheet tracker (`QUẢN LÝ TOOLS`), tick các checkbox ở cột
+   `Request Gia hạn T{tháng kế tiếp}` cho tool cần tạo Request.
+7. Chạy **🛠️ Admin Tools → 📄 Generate Request Sheet**. Lần đầu chạy sẽ có popup
+   xác thực quyền — Review permissions → Advanced → Go to [project] (unsafe) → Allow.
+8. Mở sheet Request vừa tạo, điền/sửa các cột `MANUAL` (`Loại thanh toán`,
+   `ID BOKT`, ...) như bình thường.
+9. Vẫn đang ở tab sheet Request đó, chạy **🛠️ Admin Tools → 💬 Tạo tin nhắn
+   Lead duyệt** (hoặc **📨 Tạo tin nhắn Head duyệt**) → dialog hiện tin nhắn,
+   bấm **📋 Copy nội dung** rồi dán vào chat.
+10. Với Tool hoàn toàn mới (chưa có trong sheet tracker `QUẢN LÝ TOOLS`), chạy
+    **🛠️ Admin Tools → 🆕 Tạo tin nhắn Request mua Tool mới** ở BẤT KỲ sheet
+    nào (không cần mở sheet Request) → điền Form → bấm "Tạo tin nhắn" →
+    bấm **📋 Copy nội dung** rồi dán vào chat.
+
+## 8. Hiệu năng & Logging
+
+- Đọc dữ liệu: đúng **1 lần** `getValues()` cho toàn bộ tracker.
+- Ghi dữ liệu: đúng **1 lần** `setValues()` cho toàn bộ các dòng mới — không
+  có `setValue()` trong vòng lặp ở đâu trong project.
+- `AppLogger.info/warning/error` ghi log mỗi bước quan trọng (đọc dữ liệu,
+  copy template, mở rộng vùng ghi, ghi dữ liệu) — tắt hoàn toàn bằng
+  `Config.ENABLE_LOGGING = false` nếu cần.
+
+## 9. Kiểm thử
+
+Do không thể chạy trực tiếp trên Google Apps Script trong môi trường phát
+triển này, toàn bộ luồng đã được mô phỏng bằng Node.js (`vm` module chạy
+trực tiếp các file `.gs`, mock đầy đủ `Sheet`/`Range`/`Spreadsheet`/`Ui` kể cả
+`copyTo()` và `insertRowsBefore()`) **sử dụng dữ liệu THẬT trích xuất từ file
+Excel đã upload** (`Task_Management_Tracker`, `T7.2026`, `T8.2026`). Mock
+`insertRowsBefore()` cố tình **KHÔNG** tự giãn công thức SUM (đúng hành vi
+thật của Google Sheets đã xác nhận qua bug thật — xem mục "Bug đã fix" ở
+trên) — mọi phép giãn công thức trong test phải đến từ chính
+`SheetGenerator._growTotalFormulas()`, không phải từ giả định sai của mock:
+
+- **Happy path**: tick 3 tool (CONTENTFUL, DIGITALOCEAN, N8N) → sheet mới có
+  đúng 3 dòng, mapping đúng từng cột (SOURCE/SECTION/TRANSFORM/CONSTANT/
+  MANUAL), dòng TOTAL và công thức được giữ nguyên, dữ liệu cũ (tool tháng
+  trước) bị xoá sạch.
+- **Mở rộng vùng ghi + công thức TOTAL**: tick nhiều tool hơn sức chứa gốc
+  của template (ví dụ 18 tool trên template chỉ có 10 dòng trống) → tool tự
+  chèn thêm dòng trước TOTAL, VÀ `SheetGenerator` chủ động ghi lại MỌI công
+  thức SUM ở dòng TOTAL (cả "Giá USD" và "Giá VNĐ") sang đúng vùng mới (ví
+  dụ `H3:H12` → `H3:H20`) — không dựa vào việc Google Sheets tự giãn.
+- **Regression cho đúng bug thật đã báo cáo** (18 tool trên sheet, công
+  thức TOTAL "kẹt" ở `=sum(H3:H12)` — 10 dòng đầu): `MessageService` vẫn
+  đọc ĐÚNG **cả 18 tool**, gồm cả nhóm "Mua mới" (N8N, GOOGLECLOUD) và
+  "Topup Credit" (OPENROUTER) mà bug cũ làm mất hoàn toàn, tổng tiền cộng
+  đúng $12,721.9 (không phải $11,282.9 như tin nhắn lỗi cũ).
+- **Không tool nào được tick** → `UserFacingError` đúng message
+  "Không có Tool nào được chọn để tạo Request.".
+- **Thiếu cột checkbox tháng đích** (chưa tạo cột "Request Gia hạn T9") →
+  `UserFacingError` báo rõ tên cột thiếu.
+- **Không có Template phù hợp** (xoá hết sheet T*.2026) → `UserFacingError`
+  "Không tìm thấy Template.".
+- **Từ chối ghi đè** khi sheet đã tồn tại → trả về `null`, không tạo/sửa gì.
+
+**`MessageService` (tin nhắn Lead/Head duyệt)** — cũng mô phỏng bằng Node.js
+`vm`, dữ liệu mock theo đúng format mẫu Admin cung cấp (Mosaiker/Similarweb
+(Pro)/Claude Max/N8N/Cursor với `Gia hạn`/`Mua mới`/`Topup Credit`):
+
+- **Nhóm đúng theo mẫu**: sinh đúng 4 nhóm `📌 Loại: ...` (Mua theo tháng -
+  Gia hạn / Mua theo năm - Gia hạn / Mua theo tháng - Mua mới / Mua topup
+  credit), số thứ tự (`1.`, `2.`...) reset lại ở đầu mỗi nhóm, ghi chú "Lý
+  do" được nối sau "Chi phí", tổng tiền cuối tin nhắn cộng đúng cả 5 tool.
+- **Bỏ qua slot còn trống**: các dòng chưa được Generate/Admin chưa điền
+  (`Tên tool` rỗng) trong vùng dữ liệu suy ra từ công thức TOTAL không xuất
+  hiện trong tin nhắn.
+- **Tin Head là danh sách phẳng có số thứ tự** (`1.`, `2.`, ...), KHÔNG có
+  dòng trống giữa các tool, dòng "Link BOKT:" luôn để trống (không còn chữ
+  "Admin tự copy link"), vẫn cộng đúng tổng tiền giống tin Lead.
+- **Không có sheet Request nào** (`T{n}.{yyyy}`) trong toàn bộ file →
+  `UserFacingError` yêu cầu mở đúng sheet.
+- **Sheet Request tồn tại nhưng chưa có Tool nào** (mọi slot còn trống) →
+  `UserFacingError` báo rõ tên sheet.
+
+**`NewToolRequestService` (tin nhắn Request mua Tool mới)** — test THUẦN
+logic (không cần mock `Sheet`/`Spreadsheet` gì cả, vì class này không đọc/
+ghi sheet), dùng ĐÚNG dữ liệu mẫu Admin cung cấp (AHREFS/SEO TECH):
+
+- **Khớp mẫu 100%**: build từ đúng dữ liệu mẫu → message ra **giống Y NGUYÊN
+  từng ký tự** với mẫu Admin đã cung cấp (so sánh string bằng `===`).
+- **Áp dụng default đúng**: để trống Brand/Đơn vị tiền/GTGT% → tự điền
+  "All brand"/"USD"/10% từ `Config`; để trống "Tháng đề xuất" → tự dùng
+  tháng hiện tại (không để lại chuỗi rỗng/khoảng trắng thừa trên dòng tiêu đề).
+- **GTGT/TOTAL tính đúng**: `GTGT = Price * VAT%`, `TOTAL = Price + GTGT`,
+  kể cả khi VAT = 0%.
+- **"ID phiếu"/"Note" ẩn hoàn toàn** khỏi tin nhắn khi để trống (mọi trường
+  khác luôn hiện, không có trường tuỳ chọn nào khác bị ẩn).
+- **Validation liệt kê ĐỦ mọi trường thiếu** trong 1 `UserFacingError` duy
+  nhất khi để trống toàn bộ Form; validation cũng bắt được trường hợp
+  "Phương thức thanh toán" chỉ điền 2/3 trường (STK + Tên ngân hàng nhưng
+  thiếu Tên người nhận) và "Giá" = 0.
+
+Toàn bộ 10 file `.gs` pass `node --check`.
+
+## 10. Mở rộng (roadmap, xem chi tiết trong `Code.gs`)
+
+Thêm tính năng mới (Generate BOKT, Generate Email, Generate Telegram Message,
+Export PDF/Excel, Archive Sheet, Auto gửi Gmail) chỉ cần:
+1. Tạo 1 file `.gs` mới chứa 1 class Service mới (constructor nhận
+   `spreadsheet`, giống pattern của `RequestService`).
+2. Thêm 1 hàm handler global mỏng trong `Code.gs`.
+3. Thêm 1 dòng `.addItem(...)` trong `Menu.gs`.
+
+Không cần sửa `Config`/`DataService`/`TemplateService`/`SheetGenerator`/
+`RequestService` hiện có. `RequestService.generateRequestSheet()` đã trả về
+`{ sheetName, toolCount }` để các tính năng sau (ví dụ Generate BOKT) có thể
+tái sử dụng ngay nếu cần.
