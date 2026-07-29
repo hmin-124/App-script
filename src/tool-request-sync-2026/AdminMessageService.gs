@@ -233,10 +233,18 @@ function appendNewToolDetailBlock_(lines, t) {
   lines.push(`Brand triển khai: ${t.brand || 'All Brand'}`);
   lines.push(`Giá tiền: ${price}`);
   lines.push('__________');
-  lines.push(`Thông tin thanh toán: ${t.paymentInfo || '(Chưa có)'}`);
-  if (t.stk) lines.push(`STK: ${t.stk}`);
-  if (t.recipient) lines.push(`Tên người nhận: ${t.recipient}`);
-  if (t.bank) lines.push(`Tên ngân hàng: ${t.bank}`);
+
+  // Visa defaults always filled for mua-mới messages (override if ticket has values).
+  const visa = CONFIG.MESSAGE.DEFAULT_VISA_PAYMENT;
+  const method = normalizeText_(t.paymentInfo) || visa.METHOD;
+  const stk = normalizeText_(t.stk) || visa.STK;
+  const accountName = normalizeText_(t.recipient) || visa.ACCOUNT_NAME;
+  const bank = normalizeText_(t.bank) || visa.BANK;
+
+  lines.push(`Thông tin thanh toán: ${method}`);
+  lines.push(`STK: ${stk}`);
+  lines.push(`Tên TK: ${accountName}`);
+  lines.push(`Ngân hàng: ${bank}`);
 }
 
 /**

@@ -239,6 +239,17 @@ const CONFIG = {
     BOKT_LINK_PLACEHOLDER: '',
 
     DEFAULT_QTY: 1,
+
+    /**
+     * Thông tin thẻ Visa mặc định cho tin nhắn Lead/Head — mua tool mới.
+     * Dùng khi Nội dung phiếu không trích xuất được STK / NH / chủ TK.
+     */
+    DEFAULT_VISA_PAYMENT: {
+      METHOD: 'Thẻ visa',
+      STK: '4GWJL268DKZRC8L',
+      ACCOUNT_NAME: 'NGUYEN THI MY XUYEN',
+      BANK: 'VIETINBANK',
+    },
   },
 
   /** Installable onEdit handler function name (must match global function). */

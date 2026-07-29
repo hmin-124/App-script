@@ -204,12 +204,40 @@ function run() {
   assertIncludes(leadNew, 'Tên tool: Voice minimax', 'new name');
   assertIncludes(leadNew, 'Thời gian triển khai: Từ 29/07/2026 - 28/08/2026', 'new deploy');
   assertIncludes(leadNew, 'Giá tiền: 500 USDT', 'new price');
+  assertIncludes(leadNew, 'Thông tin thanh toán: Thẻ Visa', 'new pay method');
   assertIncludes(leadNew, 'STK: 4GWJL268DKZRC8L', 'new stk');
+  assertIncludes(leadNew, 'Tên TK: NGUYEN THI MY XUYEN', 'new account name');
+  assertIncludes(leadNew, 'Ngân hàng: VIETINBANK', 'new bank');
   assertIncludes(leadNew, CONFIG.MESSAGE.NEW_TOOL_LEAD_REVIEWERS, 'new lead reviewers');
 
   const headNew = buildHeadNewToolMessage_(newTickets);
   assertIncludes(headNew, CONFIG.MESSAGE.HEAD_MENTION, 'new head mention');
   assertIncludes(headNew, 'mua tool mới trên', 'new head closing');
+  assertIncludes(headNew, 'Tên TK: NGUYEN THI MY XUYEN', 'head account name');
+  assertIncludes(headNew, 'Ngân hàng: VIETINBANK', 'head bank');
+
+  // Defaults apply when ticket has no payment coords
+  const bareNew = [
+    {
+      team: 'Dev M5',
+      idBokt: '999',
+      toolName: 'BareTool',
+      cost: 10,
+      dvt: 'USD',
+      paymentType: 'Mua mới',
+      periodLabel: 'T8/2026',
+      brand: 'All Brand',
+      paymentInfo: '',
+      stk: '',
+      recipient: '',
+      bank: '',
+    },
+  ];
+  const bareMsg = buildLeadNewToolMessage_(bareNew);
+  assertIncludes(bareMsg, 'Thông tin thanh toán: Thẻ visa', 'default visa method');
+  assertIncludes(bareMsg, `STK: ${CONFIG.MESSAGE.DEFAULT_VISA_PAYMENT.STK}`, 'default stk');
+  assertIncludes(bareMsg, `Tên TK: ${CONFIG.MESSAGE.DEFAULT_VISA_PAYMENT.ACCOUNT_NAME}`, 'default name');
+  assertIncludes(bareMsg, `Ngân hàng: ${CONFIG.MESSAGE.DEFAULT_VISA_PAYMENT.BANK}`, 'default bank');
 
   // filter: only mua moi
   const mixed = renewTickets.concat(newTickets);
