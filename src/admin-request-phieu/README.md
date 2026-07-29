@@ -2,11 +2,15 @@
 
 Công cụ Google Apps Script tự động tạo Sheet Request thanh toán tool hàng
 tháng cho file **M5 - DevSEO - Software Info**, dựa trên checkbox admin tick
-trong sheet `Task_Management_Tracker`.
+trong sheet tracker (`Config.TRACKER_SHEET_NAME`, hiện là **`QUẢN LÝ
+TOOLS`** — sheet này ban đầu tên `Task_Management_Tracker`, đã được Admin
+đổi tên; toàn bộ code chỉ resolve sheet này qua MỘT hằng số duy nhất
+`Config.TRACKER_SHEET_NAME`, nên đổi tên sheet lần sau chỉ cần sửa đúng 1
+dòng đó trong `Config.gs`, không phải sửa `DataService`/`RequestService`).
 
 ## 1. Phân tích cấu trúc dữ liệu (từ file đã upload)
 
-### Sheet `Task_Management_Tracker`
+### Sheet tracker (`QUẢN LÝ TOOLS`, trước đây tên `Task_Management_Tracker`)
 
 - **Header thật nằm ở dòng 12** (dòng 1-11 là một bảng khác — danh sách tài
   khoản 2FA — không liên quan đến luồng Request). Vì vậy code luôn **tự dò
@@ -132,7 +136,7 @@ thêm SAU nhóm "Gia hạn") bị bỏ sót hoàn toàn — không phải do l�
 ```
 Config.gs               - Hằng số, tên header, bảng mapping cột (single source of truth)
 Utils.gs                - Header lookup, copy template, format ngày/tiền, UI helper, Logger
-DataService.gs          - Đọc Task_Management_Tracker, lọc tool được tick
+DataService.gs          - Đọc sheet tracker (QUẢN LÝ TOOLS), lọc tool được tick
 TemplateService.gs      - Tìm & copy sheet mẫu "tháng gần nhất"
 SheetGenerator.gs       - Ghi dữ liệu vào sheet mới (tự tìm vùng ghi từ công thức TOTAL)
 RequestService.gs       - Orchestrator: nối toàn bộ luồng nghiệp vụ Generate Request Sheet
@@ -174,7 +178,7 @@ onGenerateRequestSheetClick()  [Code.gs]
   └─ RequestService.generateRequestSheet()
         1. Utils.getNextMonthSheetName()/getNextMonthCode() -> "T9.2026" / "T9"
         2. DataService.getApprovedTools("T9")
-             - detect header row trong Task_Management_Tracker
+             - detect header row trong sheet tracker (QUẢN LÝ TOOLS)
              - bỏ qua section-divider rows, ghi nhớ section
              - lọc rowValues["Request Gia hạn T9"] === true
              -> throw UserFacingError nếu rỗng hoặc thiếu cột checkbox
@@ -245,7 +249,7 @@ onCreateLeadMessageClick() / onCreateHeadMessageClick()  [Code.gs]
 ## 6. Luồng xử lý (Tạo tin nhắn Request mua Tool mới)
 
 `NewToolRequestService` **không đọc/ghi bất kỳ sheet nào** - một Tool hoàn
-toàn MỚI chưa có dòng nào trong `Task_Management_Tracker` hay bất kỳ sheet
+toàn MỚI chưa có dòng nào trong sheet tracker (QUẢN LÝ TOOLS) hay bất kỳ sheet
 Request nào tại thời điểm cần gửi tin xin duyệt, nên toàn bộ dữ liệu đến từ
 một **Form nhập tay** hiện ngay trong 1 dialog:
 
@@ -302,7 +306,7 @@ onCreateNewToolRequestClick()  [Code.gs]
 5. Menu **🛠️ Admin Tools** xuất hiện với 4 mục: **📄 Generate Request
    Sheet**, **💬 Tạo tin nhắn Lead duyệt**, **📨 Tạo tin nhắn Head duyệt**,
    **🆕 Tạo tin nhắn Request mua Tool mới**.
-6. Trong `Task_Management_Tracker`, tick các checkbox ở cột
+6. Trong sheet tracker (`QUẢN LÝ TOOLS`), tick các checkbox ở cột
    `Request Gia hạn T{tháng kế tiếp}` cho tool cần tạo Request.
 7. Chạy **🛠️ Admin Tools → 📄 Generate Request Sheet**. Lần đầu chạy sẽ có popup
    xác thực quyền — Review permissions → Advanced → Go to [project] (unsafe) → Allow.
@@ -311,7 +315,7 @@ onCreateNewToolRequestClick()  [Code.gs]
 9. Vẫn đang ở tab sheet Request đó, chạy **🛠️ Admin Tools → 💬 Tạo tin nhắn
    Lead duyệt** (hoặc **📨 Tạo tin nhắn Head duyệt**) → dialog hiện tin nhắn,
    bấm **📋 Copy nội dung** rồi dán vào chat.
-10. Với Tool hoàn toàn mới (chưa có trong `Task_Management_Tracker`), chạy
+10. Với Tool hoàn toàn mới (chưa có trong sheet tracker `QUẢN LÝ TOOLS`), chạy
     **🛠️ Admin Tools → 🆕 Tạo tin nhắn Request mua Tool mới** ở BẤT KỲ sheet
     nào (không cần mở sheet Request) → điền Form → bấm "Tạo tin nhắn" →
     bấm **📋 Copy nội dung** rồi dán vào chat.

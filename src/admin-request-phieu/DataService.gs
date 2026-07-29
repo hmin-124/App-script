@@ -1,7 +1,8 @@
 /**
  * DataService.gs
  * ---------------------------------------------------------------------------
- * Sole owner of reading Task_Management_Tracker. Responsible for:
+ * Sole owner of reading the tracker sheet (Config.TRACKER_SHEET_NAME, e.g.
+ * "QUẢN LÝ TOOLS"). Responsible for:
  *   - Auto-detecting the tracker's header row and resolving every column by
  *     NAME (never a hardcoded letter/index).
  *   - Skipping the tracker's section/group divider rows ("M8 TECH",
@@ -15,8 +16,8 @@
  */
 
 /**
- * Represents one real tool row from Task_Management_Tracker, exposed
- * through header names via get() instead of raw array indexes, plus the
+ * Represents one real tool row from the tracker sheet, exposed through
+ * header names via get() instead of raw array indexes, plus the
  * section/group label it belongs to.
  */
 class ToolRecord {

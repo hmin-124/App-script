@@ -18,9 +18,15 @@ class Config {
   // Sheet names
   // ---------------------------------------------------------------------
 
-  /** @returns {string} Name of the sheet that tracks every tool/subscription. */
+  /**
+   * @returns {string} Name of the sheet that tracks every tool/subscription.
+   * Renamed by Admin from "Task_Management_Tracker" to "QUẢN LÝ TOOLS" -
+   * every other file resolves this sheet ONLY through this constant (never
+   * a hardcoded literal), so this is the one and only place that ever
+   * needs to change if the sheet is renamed again in the future.
+   */
   static get TRACKER_SHEET_NAME() {
-    return 'Task_Management_Tracker';
+    return 'QUẢN LÝ TOOLS';
   }
 
   /** @returns {string} Prefix used to build a request-sheet name, e.g. "T9.2026". */
@@ -95,13 +101,13 @@ class Config {
   }
 
   // ---------------------------------------------------------------------
-  // Task_Management_Tracker (source) headers
+  // Tracker sheet (source, see TRACKER_SHEET_NAME - "QUẢN LÝ TOOLS") headers
   // ---------------------------------------------------------------------
 
   /**
-   * Canonical header names of the Task_Management_Tracker sheet. DataService
-   * resolves every one of these by NAME (never by column letter), and fails
-   * with a clear error if any of them is missing.
+   * Canonical header names of the tracker sheet (TRACKER_SHEET_NAME).
+   * DataService resolves every one of these by NAME (never by column
+   * letter), and fails with a clear error if any of them is missing.
    * @returns {Object<string,string>}
    */
   static get TRACKER_HEADERS() {
@@ -222,8 +228,8 @@ class Config {
   }
 
   /**
-   * Maps a Task_Management_Tracker section/group label (the divider rows
-   * such as "M8 TECH", "Martech", "M6 TECH") to a "Vị trí sử dụng" value.
+   * Maps a tracker-sheet section/group label (the divider rows such as
+   * "M8 TECH", "Martech", "M6 TECH") to a "Vị trí sử dụng" value.
    * NOT currently used by COLUMN_MAPPING (see DEFAULT_VI_TRI_SU_DUNG) -
    * kept here, and still tracked per-row on ToolRecord.section, in case a
    * future extension needs it again. Keys are matched case-insensitively.
@@ -243,7 +249,7 @@ class Config {
   }
 
   // ---------------------------------------------------------------------
-  // Declarative column mapping: Task_Management_Tracker -> Request sheet
+  // Declarative column mapping: tracker sheet -> Request sheet
   // ---------------------------------------------------------------------
 
   /**

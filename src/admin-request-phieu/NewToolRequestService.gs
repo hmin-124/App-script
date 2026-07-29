@@ -4,7 +4,7 @@
  * Builds the "Request mua Tool mới" approval message entirely from an
  * on-screen input FORM (getFormHtml()) - unlike RequestService/
  * MessageService, this class never reads or writes any sheet: a brand-new
- * tool has no Task_Management_Tracker row and no monthly request-sheet row
+ * tool has no row in the tracker sheet and no monthly request-sheet row
  * yet at the point this message needs to be sent, so every field (tool
  * name, features/package info, price, deployment window, payment method,
  * ...) is collected directly from Admin via the dialog instead.
