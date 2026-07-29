@@ -214,81 +214,81 @@ function allocateTargetInsertRows_(sheet, count) {
 }
 
 /**
- * Read full target rows (A:Y) for the given 1-indexed row numbers.
- * @param {number[]} rowNumbers
- * @returns {Map<number, *[]>} rowNumber → values
+ * Insert records into sheet 2026 using sparse column patches.
+ * Reuses blank ID BOKT template rows; never touches MANUAL columns so
+ * checkboxes / NCC dropdown / Thành tiền formulas remain intact.
+ * @param {Object<number, *>[]} patches insertPatch objects from MappingService
+ * @returns {number[]} absolute row numbers written (same order as patches)
  */
-function readTargetRows_(rowNumbers) {
-  const result = new Map();
-  if (!rowNumbers || rowNumbers.length === 0) return result;
+function insertTargetRecords_(patches) {
+  if (!patches || patches.length === 0) return [];
 
   const sheet = getSheetByName_(CONFIG.TARGET_SHEET_NAME, true);
-  const uniqueSorted = Array.from(new Set(rowNumbers.map(Number))).sort((a, b) => a - b);
-  const blocks = groupContiguous_(uniqueSorted);
-
-  blocks.forEach((block) => {
-    const start = block[0];
-    const values = sheet.getRange(start, 1, block.length, CONFIG.TARGET_NUM_COLS).getValues();
-    for (let i = 0; i < values.length; i++) {
-      result.set(start + i, values[i]);
-    }
-  });
-
-  return result;
-}
-
-/**
- * Insert records into sheet 2026.
- * Reuses blank ID BOKT template rows when available; clears data validation
- * on each write range so NCC dropdowns cannot block automation.
- * @param {*[][]} rowsMatrix each row length = TARGET_NUM_COLS
- * @returns {number[]} absolute row numbers written (same order as rowsMatrix)
- */
-function insertTargetRecords_(rowsMatrix) {
-  if (!rowsMatrix || rowsMatrix.length === 0) return [];
-
-  const sheet = getSheetByName_(CONFIG.TARGET_SHEET_NAME, true);
-  const targetRows = allocateTargetInsertRows_(sheet, rowsMatrix.length);
+  const targetRows = allocateTargetInsertRows_(sheet, patches.length);
+  const allowed = CONFIG.UPDATABLE_TARGET_COLS.concat(CONFIG.INSERT_ONLY_TARGET_COLS);
   const payload = targetRows.map((rowNumber, idx) => ({
     rowNumber,
-    values: rowsMatrix[idx],
+    patch: filterPatchCols_(patches[idx], allowed),
   }));
-  writeTargetRowBlocks_(sheet, payload);
+  writeTargetColumnPatches_(sheet, payload);
   return targetRows;
 }
 
 /**
- * Write updated full rows (A:Y) back to their absolute row indexes.
- * Uses contiguous blocks where possible; clears validations before write.
- * @param {{rowNumber: number, values: *[]}[]} records
+ * Update existing rows using sparse column patches (UPDATABLE cols only).
+ * @param {{rowNumber: number, patch: Object<number, *>}[]} records
  */
 function updateTargetRecords_(records) {
   if (!records || records.length === 0) return;
   const sheet = getSheetByName_(CONFIG.TARGET_SHEET_NAME, true);
-  writeTargetRowBlocks_(sheet, records);
+  const payload = records.map((r) => ({
+    rowNumber: r.rowNumber,
+    patch: filterPatchCols_(r.patch, CONFIG.UPDATABLE_TARGET_COLS),
+  }));
+  writeTargetColumnPatches_(sheet, payload);
 }
 
 /**
- * Group records by contiguous row numbers and write each block via writeMatrix_.
+ * Write sparse patches by column to preserve formatting/formulas on untouched cells.
+ * Strategy: for each distinct column index, batch-write contiguous row blocks
+ * with a single-column setValues (no full-row A:Y overwrite).
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
- * @param {{rowNumber: number, values: *[]}[]} records
+ * @param {{rowNumber: number, patch: Object<number, *>}[]} records
  */
-function writeTargetRowBlocks_(sheet, records) {
-  const sorted = records.slice().sort((a, b) => a.rowNumber - b.rowNumber);
-  let blockStartIdx = 0;
-  while (blockStartIdx < sorted.length) {
-    let blockEndIdx = blockStartIdx;
-    while (
-      blockEndIdx + 1 < sorted.length &&
-      sorted[blockEndIdx + 1].rowNumber === sorted[blockEndIdx].rowNumber + 1
-    ) {
-      blockEndIdx++;
+function writeTargetColumnPatches_(sheet, records) {
+  if (!records || records.length === 0) return;
+
+  // colIdx → [{rowNumber, value}]
+  const byCol = new Map();
+  records.forEach((rec) => {
+    if (!rec || !rec.patch) return;
+    Object.keys(rec.patch).forEach((key) => {
+      const colIdx = Number(key);
+      // Hard block manual columns even if a buggy patch sneaks through.
+      if (CONFIG.MANUAL_TARGET_COLS.indexOf(colIdx) !== -1) return;
+      if (!byCol.has(colIdx)) byCol.set(colIdx, []);
+      byCol.get(colIdx).push({ rowNumber: rec.rowNumber, value: rec.patch[colIdx] });
+    });
+  });
+
+  byCol.forEach((entries, colIdx) => {
+    const sorted = entries.slice().sort((a, b) => a.rowNumber - b.rowNumber);
+    let blockStart = 0;
+    while (blockStart < sorted.length) {
+      let blockEnd = blockStart;
+      while (
+        blockEnd + 1 < sorted.length &&
+        sorted[blockEnd + 1].rowNumber === sorted[blockEnd].rowNumber + 1
+      ) {
+        blockEnd++;
+      }
+      const block = sorted.slice(blockStart, blockEnd + 1);
+      const matrix = block.map((e) => [e.value]);
+      // Write single column — does not clear validations/formulas on other cols.
+      writeMatrix_(sheet, block[0].rowNumber, colIdx + 1, matrix);
+      blockStart = blockEnd + 1;
     }
-    const block = sorted.slice(blockStartIdx, blockEndIdx + 1);
-    const matrix = block.map((r) => r.values);
-    writeMatrix_(sheet, block[0].rowNumber, 1, matrix);
-    blockStartIdx = blockEndIdx + 1;
-  }
+  });
 }
 
 /**

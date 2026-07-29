@@ -19,7 +19,7 @@ const CONFIG = {
   /** Sync activity log sheet (auto-created if missing). */
   LOG_SHEET_NAME: 'SYNC_LOG',
 
-  /** Optional vendor lookup sheet (feature-flagged). */
+  /** Optional vendor lookup sheet (feature-flagged; not written to target). */
   INFO_SHEET_NAME: 'infor',
 
   /** First data row on each sheet (1-indexed). */
@@ -61,49 +61,76 @@ const CONFIG = {
   /** Target columns (0-indexed). */
   TARGET_COLS: {
     MONTH: 0, // A
-    GROUP_INTERNAL: 1, // B
-    GROUP_BUY: 2, // C
-    TEAM: 3, // D
-    ID_BOKT: 4, // E
-    CREATED_AT: 5, // F
-    CHANNEL: 6, // G
-    SUB_CHANNEL: 7, // H
-    NCC: 8, // I
-    CONTENT: 9, // J
-    PAYMENT_INFO: 10, // K
-    COST: 11, // L
-    DVT: 12, // M
-    FX_RATE: 13, // N
-    AMOUNT: 14, // O
-    BRAND: 15, // P
-    PIC: 16, // Q
-    LEADER: 17, // R
-    A_ALEX: 18, // S
-    STATUS: 19, // T
-    PAYMENT_TYPE: 20, // U
-    RENEWAL_TYPE: 21, // V
-    PREV_BOKT: 22, // W
-    NOTE: 23, // X
-    USAGE_TIME: 24, // Y
+    GROUP_INTERNAL: 1, // B – manual
+    GROUP_BUY: 2, // C – manual
+    TEAM: 3, // D – synced
+    ID_BOKT: 4, // E – synced
+    CREATED_AT: 5, // F – insert only
+    CHANNEL: 6, // G – insert only (default)
+    SUB_CHANNEL: 7, // H – insert only (default)
+    NCC: 8, // I – manual
+    CONTENT: 9, // J – synced
+    PAYMENT_INFO: 10, // K – synced
+    COST: 11, // L – synced
+    DVT: 12, // M – synced
+    FX_RATE: 13, // N – manual
+    AMOUNT: 14, // O – formula (manual / sheet formula)
+    BRAND: 15, // P – manual
+    PIC: 16, // Q – manual
+    LEADER: 17, // R – manual
+    A_ALEX: 18, // S – manual
+    STATUS: 19, // T – manual (Admin)
+    PAYMENT_TYPE: 20, // U – synced
+    RENEWAL_TYPE: 21, // V – synced
+    PREV_BOKT: 22, // W – manual
+    NOTE: 23, // X – manual
+    USAGE_TIME: 24, // Y – synced
   },
 
   TARGET_NUM_COLS: 25, // A:Y
 
   /**
-   * Columns that MAY be overwritten on UPDATE (0-indexed).
-   * Admin-owned columns are intentionally excluded.
+   * Columns employees fill manually on sheet 2026.
+   * Sync NEVER writes these — preserves values, formulas, formatting,
+   * checkboxes and data validation (e.g. NCC dropdown, Thành tiền formula).
+   */
+  MANUAL_TARGET_COLS: [
+    1, // B Group nội bộ duyệt
+    2, // C Group Mua tool
+    8, // I NCC
+    13, // N Tỷ giá
+    14, // O Thành tiền (formula)
+    15, // P Brand
+    16, // Q PIC phiếu
+    17, // R Leader
+    18, // S A Alex
+    19, // T Status (Admin update)
+    22, // W ID BOKT tháng trước
+    23, // X Note
+  ],
+
+  /**
+   * Columns written on INSERT only (defaults / first-create metadata).
+   * Not overwritten on subsequent UPDATE.
+   */
+  INSERT_ONLY_TARGET_COLS: [
+    0, // A Tháng
+    5, // F Ngày tạo phiếu
+    6, // G Channel
+    7, // H Sub channel
+  ],
+
+  /**
+   * Columns that MAY be written on both INSERT and UPDATE (0-indexed).
+   * Must not intersect MANUAL_TARGET_COLS.
    */
   UPDATABLE_TARGET_COLS: [
     3, // D Team QL
     4, // E ID BOKT
-    8, // I NCC
     9, // J Nội dung phiếu
     10, // K Thông tin thanh toán
     11, // L Cost
     12, // M DVT
-    13, // N Tỷ giá
-    14, // O Thành tiền
-    19, // T Status (only when source has value — enforced in SyncService)
     20, // U Loại thanh toán
     21, // V Loại gia hạn
     24, // Y Thời gian sử dụng
@@ -122,7 +149,6 @@ const CONFIG = {
     8: 'giá vnd',
     16: 'thông tin thanh toán',
     18: 'id bokt',
-    19: 'tình trạng thanh toán',
     20: 'ngày gia hạn',
   },
 
@@ -130,11 +156,9 @@ const CONFIG = {
     3: 'team ql',
     4: 'id bokt',
     5: 'ngày tạo phiếu',
-    8: 'ncc',
     9: 'nội dung phiếu',
     11: 'cost',
     12: 'dvt',
-    19: 'status (admin update)',
     20: 'loại thanh toán',
     21: 'loại gia hạn',
   },
@@ -142,18 +166,11 @@ const CONFIG = {
   DEFAULT_VALUES: {
     CHANNEL: 'mkt0008',
     SUB_CHANNEL: 'Softwares Licenses',
-    PIC: '',
-    BRAND: '',
-    STATUS: 'PENDING',
-    GROUP_INTERNAL: false,
-    GROUP_BUY: false,
-    LEADER: false,
-    A_ALEX: false,
   },
 
   /**
-   * FX rate used when Cost is USD.
-   * Set to a number (e.g. 25400) or leave null/'' to keep Tỷ giá + Thành tiền blank.
+   * @deprecated FX / Thành tiền are manual + sheet formula — kept for
+   * backward compatibility only; sync no longer writes N/O.
    */
   EXCHANGE_RATE: null,
 
@@ -195,11 +212,10 @@ const CONFIG = {
 
   /**
    * Optional NCC lookup against sheet `infor`.
-   * Disabled by default — enable only after confirming infor layout.
+   * Disabled — NCC on sheet 2026 is filled manually by staff.
    */
   NCC_LOOKUP: {
     ENABLED: false,
-    /** Column in `infor` that stores "CODE NAME" strings (0-indexed). */
     VALUE_COL: 0,
     DATA_START_ROW: 2,
   },

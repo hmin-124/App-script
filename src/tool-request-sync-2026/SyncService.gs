@@ -56,11 +56,9 @@ function syncSourceRows_(rowNumbers, options) {
     }
 
     const { map: idMap, duplicates } = buildTargetIdMap_();
-    const nccMap = loadNccLookupMap_();
 
-    const inserts = []; // {mapped, logMeta}
+    const inserts = []; // {mapped}
     const updates = []; // {targetRow, mapped}
-    const updateRowNumbers = [];
 
     // First pass: validate + decide action (no writes yet).
     sourceRecords.forEach((record) => {
@@ -106,46 +104,26 @@ function syncSourceRows_(rowNumbers, options) {
         return;
       }
 
-      const mapped = mapSourceToTarget_(record, validated, nccMap);
+      const mapped = mapSourceToTarget_(record, validated);
       const existingRow = idMap.get(validated.idBokt);
 
       if (existingRow) {
         updates.push({ targetRow: existingRow, mapped });
-        updateRowNumbers.push(existingRow);
       } else {
         inserts.push({ mapped });
       }
     });
 
-    // Apply updates: read existing rows → merge patch → batch write.
+    // Apply updates via sparse column patches (manual cols / formulas untouched).
     if (updates.length) {
-      const existingMap = readTargetRows_(updateRowNumbers);
       const updatePayload = [];
 
       updates.forEach((item) => {
-        const existing = existingMap.get(item.targetRow);
-        if (!existing) {
-          summary.errors++;
-          logs.push(
-            buildLogEntry_({
-              action: CONFIG.ACTIONS.ERROR,
-              sourceRow: item.mapped.sourceRow,
-              idBokt: item.mapped.idBokt,
-              toolName: item.mapped.toolName,
-              result: CONFIG.RESULTS.FAILED,
-              detail: `Không đọc được dòng đích ${item.targetRow}`,
-              targetRow: item.targetRow,
-            })
-          );
-          return;
-        }
-
-        const merged = applyUpdatePatch_(existing, item.mapped.updatePatch);
-        updatePayload.push({ rowNumber: item.targetRow, values: merged });
-
-        // Reserve ID in map for subsequent source rows in same batch (same ID).
+        updatePayload.push({
+          rowNumber: item.targetRow,
+          patch: item.mapped.updatePatch,
+        });
         idMap.set(item.mapped.idBokt, item.targetRow);
-
         summary.updated++;
         logs.push(
           buildLogEntry_({
@@ -163,17 +141,15 @@ function syncSourceRows_(rowNumbers, options) {
       updateTargetRecords_(updatePayload);
     }
 
-    // Apply inserts in one setValues(); track assigned rows for logs + idMap.
+    // Apply inserts via sparse column patches into blank ID BOKT template rows.
     if (inserts.length) {
-      // Deduplicate inserts by ID within this batch (keep first).
       const seenInsertIds = new Set();
-      const insertMatrix = [];
+      const insertPatches = [];
       const insertMetas = [];
 
       inserts.forEach((item) => {
         const id = item.mapped.idBokt;
         if (seenInsertIds.has(id) || idMap.has(id)) {
-          // Same batch already inserting / just updated this ID.
           if (seenInsertIds.has(id)) {
             summary.duplicates++;
             logs.push(
@@ -187,7 +163,6 @@ function syncSourceRows_(rowNumbers, options) {
               })
             );
           } else {
-            // Race within batch: treat as update opportunity missed → SKIP with note
             summary.skipped++;
             logs.push(
               buildLogEntry_({
@@ -203,12 +178,12 @@ function syncSourceRows_(rowNumbers, options) {
           return;
         }
         seenInsertIds.add(id);
-        insertMatrix.push(item.mapped.insertRow);
+        insertPatches.push(item.mapped.insertPatch);
         insertMetas.push(item.mapped);
       });
 
-      if (insertMatrix.length) {
-        const assignedRows = insertTargetRecords_(insertMatrix);
+      if (insertPatches.length) {
+        const assignedRows = insertTargetRecords_(insertPatches);
         insertMetas.forEach((mapped, idx) => {
           const targetRow = assignedRows[idx];
           idMap.set(mapped.idBokt, targetRow);

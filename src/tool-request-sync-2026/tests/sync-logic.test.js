@@ -1,6 +1,6 @@
 /**
  * Unit tests for Tool Request → 2026 sync pure logic
- * (normalize / validate / cost rules / mapping / admin-safe patch).
+ * (normalize / validate / cost rules / mapping / manual-column protection).
  *
  * Run: node src/tool-request-sync-2026/tests/sync-logic.test.js
  */
@@ -34,10 +34,6 @@ function loadProject() {
   };
   vm.createContext(context);
 
-  // Minimal Sheet stub so allocateTargetInsertRows_ can be unit-tested.
-  context._sheetState = null;
-  context.SpreadsheetApp = {};
-
   for (const file of [
     'Config.gs',
     'Utils.gs',
@@ -49,8 +45,6 @@ function loadProject() {
     vm.runInContext(code, context, { filename: file });
   }
 
-  // `const`/`function` bindings live in the VM lexical scope, not as
-  // properties on the context object — export the symbols we need to test.
   return vm.runInContext(
     `({
       CONFIG,
@@ -60,9 +54,8 @@ function loadProject() {
       validateSourceRecord_,
       resolveCostAndCurrency_,
       mapSourceToTarget_,
-      applyUpdatePatch_,
+      filterPatchCols_,
       allocateTargetInsertRows_,
-      isBlank_,
     })`,
     context
   );
@@ -73,14 +66,13 @@ function loadProject() {
  * @param {*[]} idColumnValues values for rows starting at TARGET_DATA_START_ROW
  */
 function makeSheetMock(idColumnValues) {
-  const start = 2; // CONFIG.TARGET_DATA_START_ROW
+  const start = 2;
   const lastRow = idColumnValues.length ? start + idColumnValues.length - 1 : 0;
   return {
     getLastRow: () => lastRow,
     getMaxRows: () => Math.max(1000, lastRow),
     getRange: (row, col, numRows) => ({
       getValues: () => {
-        // Only column-E reads are used by allocateTargetInsertRows_.
         if (col !== 5) return Array.from({ length: numRows }, () => ['']);
         const out = [];
         for (let i = 0; i < numRows; i++) {
@@ -123,7 +115,8 @@ function run() {
     validateSourceRecord_,
     resolveCostAndCurrency_,
     mapSourceToTarget_,
-    applyUpdatePatch_,
+    filterPatchCols_,
+    allocateTargetInsertRows_,
   } = ctx;
 
   // --- normalizeId_ ---
@@ -179,25 +172,18 @@ function run() {
   assert(okUsd.ok, 'usd row ok');
   assert(okUsd.warnings.length >= 1, 'dual currency warning');
 
-  // --- cost rules ---
-  CONFIG.EXCHANGE_RATE = null;
+  // --- cost rules: only Cost + DVT (no FX / Thành tiền) ---
   let cost = resolveCostAndCurrency_(55, 1000);
   assertEqual(cost.dvt, 'USD', 'prefer usd');
   assertEqual(cost.cost, 55, 'usd cost');
-  assertEqual(cost.fxRate, '', 'no fx');
-  assertEqual(cost.amount, '', 'no amount without fx');
-
-  CONFIG.EXCHANGE_RATE = 25000;
-  cost = resolveCostAndCurrency_(2, null);
-  assertEqual(cost.amount, 50000, 'usd * fx');
+  assertEqual(cost.fxRate, undefined, 'no fx in resolver');
+  assertEqual(cost.amount, undefined, 'no amount in resolver');
 
   cost = resolveCostAndCurrency_(null, 500000);
   assertEqual(cost.dvt, 'PNT', 'vnd → PNT');
-  assertEqual(cost.fxRate, 1, 'pnt fx');
-  assertEqual(cost.amount, 500000, 'pnt amount');
+  assertEqual(cost.cost, 500000, 'pnt cost');
 
-  // --- mapping insert + admin-safe update ---
-  CONFIG.EXCHANGE_RATE = null;
+  // --- mapping: sync cols only; manual cols absent ---
   const record = {
     rowNumber: 5,
     values: makeSourceValues({
@@ -209,55 +195,54 @@ function run() {
       7: 34.2,
       16: 'Thẻ visa',
       18: 3513372,
-      19: '',
+      19: 'Done',
       20: '11 hàng tháng',
     }),
   };
   const validated = validateSourceRecord_(record);
   assert(validated.ok, 'map source ok');
-  const mapped = mapSourceToTarget_(record, validated, new Map());
-  assertEqual(mapped.insertRow[CONFIG.TARGET_COLS.TEAM], 'Dev M5', 'team');
-  assertEqual(mapped.insertRow[CONFIG.TARGET_COLS.ID_BOKT], '3513372', 'id');
-  assertEqual(mapped.insertRow[CONFIG.TARGET_COLS.NCC], 'N8N Cloud', 'ncc normalized');
-  assertEqual(mapped.insertRow[CONFIG.TARGET_COLS.CHANNEL], 'mkt0008', 'default channel');
-  assertEqual(mapped.insertRow[CONFIG.TARGET_COLS.STATUS], 'PENDING', 'default status');
-  assertEqual(mapped.insertRow[CONFIG.TARGET_COLS.GROUP_INTERNAL], false, 'group false');
-  assertEqual(mapped.updatePatch[CONFIG.TARGET_COLS.STATUS], undefined, 'status omitted when source empty');
+  const mapped = mapSourceToTarget_(record, validated);
 
-  const existing = new Array(CONFIG.TARGET_NUM_COLS).fill('');
-  existing[CONFIG.TARGET_COLS.GROUP_INTERNAL] = true;
-  existing[CONFIG.TARGET_COLS.PIC] = 'mali';
-  existing[CONFIG.TARGET_COLS.NOTE] = 'keep-me';
-  existing[CONFIG.TARGET_COLS.CREATED_AT] = new Date(2026, 0, 1);
-  existing[CONFIG.TARGET_COLS.STATUS] = 'Approved';
-  existing[CONFIG.TARGET_COLS.BRAND] = 'BrandX';
+  const TC = CONFIG.TARGET_COLS;
+  assertEqual(mapped.insertPatch[TC.TEAM], 'Dev M5', 'team');
+  assertEqual(mapped.insertPatch[TC.ID_BOKT], '3513372', 'id');
+  assertEqual(mapped.insertPatch[TC.CHANNEL], 'mkt0008', 'default channel');
+  assertEqual(mapped.insertPatch[TC.COST], 34.2, 'cost');
+  assertEqual(mapped.insertPatch[TC.DVT], 'USD', 'dvt');
+  assertEqual(mapped.updatePatch[TC.COST], 34.2, 'update cost');
 
-  const merged = applyUpdatePatch_(existing, mapped.updatePatch);
-  assertEqual(merged[CONFIG.TARGET_COLS.GROUP_INTERNAL], true, 'preserve admin group');
-  assertEqual(merged[CONFIG.TARGET_COLS.PIC], 'mali', 'preserve PIC');
-  assertEqual(merged[CONFIG.TARGET_COLS.NOTE], 'keep-me', 'preserve note');
-  assertEqual(merged[CONFIG.TARGET_COLS.BRAND], 'BrandX', 'preserve brand');
-  assertEqual(merged[CONFIG.TARGET_COLS.STATUS], 'Approved', 'preserve status when source empty');
-  assertEqual(merged[CONFIG.TARGET_COLS.COST], 34.2, 'update cost');
-  assertEqual(merged[CONFIG.TARGET_COLS.NCC], 'N8N Cloud', 'update ncc');
-  assert(
-    merged[CONFIG.TARGET_COLS.CREATED_AT] instanceof Date &&
-      merged[CONFIG.TARGET_COLS.CREATED_AT].getTime() === existing[CONFIG.TARGET_COLS.CREATED_AT].getTime(),
-    'preserve created at'
-  );
+  // Manual columns must NOT appear in either patch
+  CONFIG.MANUAL_TARGET_COLS.forEach((colIdx) => {
+    assert(
+      !Object.prototype.hasOwnProperty.call(mapped.insertPatch, colIdx),
+      `insertPatch must not contain manual col ${colIdx}`
+    );
+    assert(
+      !Object.prototype.hasOwnProperty.call(mapped.updatePatch, colIdx),
+      `updatePatch must not contain manual col ${colIdx}`
+    );
+  });
 
-  // Status updates when source has value
-  record.values[CONFIG.SOURCE_COLS.PAYMENT_STATUS] = 'Done';
-  const validated2 = validateSourceRecord_(record);
-  const mapped2 = mapSourceToTarget_(record, validated2, new Map());
-  const merged2 = applyUpdatePatch_(existing, mapped2.updatePatch);
-  assertEqual(merged2[CONFIG.TARGET_COLS.STATUS], 'Done', 'status updates from source');
+  // INSERT-only fields absent from update patch
+  CONFIG.INSERT_ONLY_TARGET_COLS.forEach((colIdx) => {
+    assert(
+      Object.prototype.hasOwnProperty.call(mapped.insertPatch, colIdx),
+      `insertPatch should contain insert-only col ${colIdx}`
+    );
+    assert(
+      !Object.prototype.hasOwnProperty.call(mapped.updatePatch, colIdx),
+      `updatePatch must not contain insert-only col ${colIdx}`
+    );
+  });
 
-  // --- allocateTargetInsertRows_: reuse blank ID slots in template ---
-  const {
-    allocateTargetInsertRows_,
-  } = ctx;
-  // Template: row2 has ID, row3 blank, row4 blank, … simulate 5 template rows
+  // filterPatchCols_ defense
+  const dirty = Object.assign({}, mapped.updatePatch, { [TC.NCC]: 'HACK', [TC.STATUS]: 'X' });
+  const cleaned = filterPatchCols_(dirty, CONFIG.UPDATABLE_TARGET_COLS);
+  assertEqual(cleaned[TC.NCC], undefined, 'filter drops NCC');
+  assertEqual(cleaned[TC.STATUS], undefined, 'filter drops Status');
+  assertEqual(cleaned[TC.COST], 34.2, 'filter keeps Cost');
+
+  // --- allocateTargetInsertRows_ ---
   const sheet = makeSheetMock(['111', '', '', '222', '']);
   const rows = allocateTargetInsertRows_(sheet, 3);
   assertEqual(rows.length, 3, 'allocate 3 rows');
@@ -265,7 +250,6 @@ function run() {
   assertEqual(rows[1], 4, 'second blank slot');
   assertEqual(rows[2], 6, 'third blank slot');
 
-  // All IDs filled → append after last row
   const full = makeSheetMock(['1', '2', '3']);
   const appended = allocateTargetInsertRows_(full, 2);
   assertEqual(appended[0], 5, 'append row 5');

@@ -1,33 +1,26 @@
 /**
  * MappingService.gs
  * ---------------------------------------------------------------------------
- * Map a validated Tool Request record → 2026 row payload (insert / update patch).
+ * Map a validated Tool Request record → sparse column patches for sheet 2026.
+ *
+ * Manual columns (NCC, Tỷ giá, Thành tiền formula, Brand, PIC, approvals,
+ * Status, Note, …) are NEVER included in patches so sheet formatting /
+ * formulas / dropdowns stay intact.
  */
 
 /**
- * Resolve Cost / DVT / FX / Thành tiền from USD/VND source prices.
+ * Resolve Cost + DVT from USD/VND source prices.
+ * Tỷ giá (N) and Thành tiền (O) are NOT computed here — staff enter FX
+ * manually; Thành tiền uses a sheet formula.
  * @param {number|null} priceUsd
  * @param {number|null} priceVnd
- * @returns {{cost: number|null, dvt: string, fxRate: number|string, amount: number|string, warning: string}}
+ * @returns {{cost: number|null, dvt: string, warning: string}}
  */
 function resolveCostAndCurrency_(priceUsd, priceVnd) {
-  const configuredFx = CONFIG.EXCHANGE_RATE;
-  const hasFx =
-    configuredFx !== null &&
-    configuredFx !== undefined &&
-    configuredFx !== '' &&
-    isFinite(Number(configuredFx));
-
   if (priceUsd !== null) {
-    const cost = priceUsd;
-    const dvt = 'USD';
-    const fxRate = hasFx ? Number(configuredFx) : '';
-    const amount = hasFx ? cost * Number(configuredFx) : '';
     return {
-      cost,
-      dvt,
-      fxRate,
-      amount,
+      cost: priceUsd,
+      dvt: 'USD',
       warning: priceVnd !== null ? 'Ưu tiên Giá USD (nguồn có cả USD và VNĐ)' : '',
     };
   }
@@ -36,144 +29,101 @@ function resolveCostAndCurrency_(priceUsd, priceVnd) {
     return {
       cost: priceVnd,
       dvt: 'PNT',
-      fxRate: 1,
-      amount: priceVnd,
       warning: '',
     };
   }
 
-  return {
-    cost: null,
-    dvt: '',
-    fxRate: '',
-    amount: '',
-    warning: '',
-  };
+  return { cost: null, dvt: '', warning: '' };
 }
 
 /**
- * Resolve NCC display value, optionally via exact lookup on `infor`.
- * @param {string} toolName
- * @param {Map<string,string>=} nccMap
- * @returns {{ncc: string, warning: string}}
- */
-function resolveNcc_(toolName, nccMap) {
-  const display = normalizeText_(toolName);
-  if (!CONFIG.NCC_LOOKUP.ENABLED || !nccMap || nccMap.size === 0) {
-    return { ncc: display, warning: '' };
-  }
-  const key = normalizeHeaderKey_(display);
-  if (nccMap.has(key)) {
-    return { ncc: nccMap.get(key), warning: '' };
-  }
-  return {
-    ncc: display,
-    warning: `Không tìm thấy mã NCC khớp exact cho "${display}" — giữ tên tool gốc`,
-  };
-}
-
-/**
- * Build insert + update payloads from a validated source record.
+ * Build INSERT + UPDATE sparse patches from a validated source record.
  * @param {{rowNumber: number, values: *[]}} record
- * @param {ReturnType<typeof validateSourceRecord_>} validated
- * @param {Map<string,string>=} nccMap
+ * @param {Object} validated result of validateSourceRecord_
  * @returns {{
  *   idBokt: string,
  *   toolName: string,
  *   sourceRow: number,
  *   warnings: string[],
- *   insertRow: *[],
+ *   insertPatch: Object<number, *>,
  *   updatePatch: Object<number, *>
  * }}
  */
-function mapSourceToTarget_(record, validated, nccMap) {
+function mapSourceToTarget_(record, validated) {
   const costInfo = resolveCostAndCurrency_(validated.priceUsd, validated.priceVnd);
-  const nccInfo = resolveNcc_(validated.toolName, nccMap);
   const createdAt = new Date();
   const month = monthFromDate_(createdAt);
-  const status = validated.paymentStatus || CONFIG.DEFAULT_VALUES.STATUS;
 
   const warnings = (validated.warnings || []).slice();
   if (costInfo.warning) warnings.push(costInfo.warning);
-  if (nccInfo.warning) warnings.push(nccInfo.warning);
 
   const TC = CONFIG.TARGET_COLS;
   const DV = CONFIG.DEFAULT_VALUES;
 
-  /** Full A:Y row for INSERT. */
-  const insertRow = new Array(CONFIG.TARGET_NUM_COLS).fill('');
-  insertRow[TC.MONTH] = month;
-  insertRow[TC.GROUP_INTERNAL] = DV.GROUP_INTERNAL;
-  insertRow[TC.GROUP_BUY] = DV.GROUP_BUY;
-  insertRow[TC.TEAM] = validated.team;
-  insertRow[TC.ID_BOKT] = validated.idBokt;
-  insertRow[TC.CREATED_AT] = createdAt;
-  insertRow[TC.CHANNEL] = DV.CHANNEL;
-  insertRow[TC.SUB_CHANNEL] = DV.SUB_CHANNEL;
-  insertRow[TC.NCC] = nccInfo.ncc;
-  insertRow[TC.CONTENT] = validated.detail == null ? '' : validated.detail;
-  insertRow[TC.PAYMENT_INFO] = validated.paymentInfo == null ? '' : validated.paymentInfo;
-  insertRow[TC.COST] = costInfo.cost;
-  insertRow[TC.DVT] = costInfo.dvt;
-  insertRow[TC.FX_RATE] = costInfo.fxRate;
-  insertRow[TC.AMOUNT] = costInfo.amount;
-  insertRow[TC.BRAND] = DV.BRAND;
-  insertRow[TC.PIC] = DV.PIC;
-  insertRow[TC.LEADER] = DV.LEADER;
-  insertRow[TC.A_ALEX] = DV.A_ALEX;
-  insertRow[TC.STATUS] = status;
-  insertRow[TC.PAYMENT_TYPE] = validated.paymentType;
-  insertRow[TC.RENEWAL_TYPE] = validated.renewalType;
-  insertRow[TC.PREV_BOKT] = '';
-  insertRow[TC.NOTE] = '';
-  insertRow[TC.USAGE_TIME] = validated.renewalDate == null ? '' : validated.renewalDate;
+  /** Shared fields written on both INSERT and UPDATE. */
+  const sharedPatch = {};
+  sharedPatch[TC.TEAM] = validated.team;
+  sharedPatch[TC.ID_BOKT] = validated.idBokt;
+  sharedPatch[TC.CONTENT] = validated.detail == null ? '' : validated.detail;
+  sharedPatch[TC.PAYMENT_INFO] = validated.paymentInfo == null ? '' : validated.paymentInfo;
+  sharedPatch[TC.COST] = costInfo.cost;
+  sharedPatch[TC.DVT] = costInfo.dvt;
+  sharedPatch[TC.PAYMENT_TYPE] = validated.paymentType;
+  sharedPatch[TC.RENEWAL_TYPE] = validated.renewalType;
+  sharedPatch[TC.USAGE_TIME] = validated.renewalDate == null ? '' : validated.renewalDate;
 
-  /**
-   * Sparse patch for UPDATE — keys are 0-indexed target columns.
-   * Status is included only when source payment status is non-empty.
-   */
-  const updatePatch = {};
-  updatePatch[TC.TEAM] = validated.team;
-  updatePatch[TC.ID_BOKT] = validated.idBokt;
-  updatePatch[TC.NCC] = nccInfo.ncc;
-  updatePatch[TC.CONTENT] = validated.detail == null ? '' : validated.detail;
-  updatePatch[TC.PAYMENT_INFO] = validated.paymentInfo == null ? '' : validated.paymentInfo;
-  updatePatch[TC.COST] = costInfo.cost;
-  updatePatch[TC.DVT] = costInfo.dvt;
-  updatePatch[TC.FX_RATE] = costInfo.fxRate;
-  updatePatch[TC.AMOUNT] = costInfo.amount;
-  if (validated.paymentStatus) {
-    updatePatch[TC.STATUS] = validated.paymentStatus;
-  }
-  updatePatch[TC.PAYMENT_TYPE] = validated.paymentType;
-  updatePatch[TC.RENEWAL_TYPE] = validated.renewalType;
-  updatePatch[TC.USAGE_TIME] = validated.renewalDate == null ? '' : validated.renewalDate;
+  /** INSERT adds first-create metadata only — never touches MANUAL cols. */
+  const insertPatch = Object.assign({}, sharedPatch);
+  insertPatch[TC.MONTH] = month;
+  insertPatch[TC.CREATED_AT] = createdAt;
+  insertPatch[TC.CHANNEL] = DV.CHANNEL;
+  insertPatch[TC.SUB_CHANNEL] = DV.SUB_CHANNEL;
+
+  /** UPDATE = shared only (preserves F/G/H + all manual columns). */
+  const updatePatch = Object.assign({}, sharedPatch);
+
+  assertPatchAvoidsManualCols_(insertPatch, 'insertPatch');
+  assertPatchAvoidsManualCols_(updatePatch, 'updatePatch');
 
   return {
     idBokt: validated.idBokt,
     toolName: validated.toolName,
     sourceRow: record.rowNumber,
     warnings,
-    insertRow,
+    insertPatch,
     updatePatch,
   };
 }
 
 /**
- * Apply an update patch onto an existing target row without touching admin columns.
- * @param {*[]} existingRow length TARGET_NUM_COLS
- * @param {Object<number, *>} updatePatch
- * @returns {*[]}
+ * Dev-time guard: refuse to ship a patch that touches manual columns.
+ * @param {Object<number, *>} patch
+ * @param {string} label
  */
-function applyUpdatePatch_(existingRow, updatePatch) {
-  const next = existingRow.slice();
-  // Ensure row width.
-  while (next.length < CONFIG.TARGET_NUM_COLS) next.push('');
-
-  CONFIG.UPDATABLE_TARGET_COLS.forEach((colIdx) => {
-    if (Object.prototype.hasOwnProperty.call(updatePatch, colIdx)) {
-      next[colIdx] = updatePatch[colIdx];
+function assertPatchAvoidsManualCols_(patch, label) {
+  const manual = new Set(CONFIG.MANUAL_TARGET_COLS);
+  Object.keys(patch).forEach((key) => {
+    const colIdx = Number(key);
+    if (manual.has(colIdx)) {
+      throw new Error(
+        `${label} không được ghi cột manual index ${colIdx}. Kiểm tra MappingService/CONFIG.`
+      );
     }
   });
-  return next;
+}
+
+/**
+ * Filter a patch down to allowed column indexes (defense in depth).
+ * @param {Object<number, *>} patch
+ * @param {number[]} allowedCols
+ * @returns {Object<number, *>}
+ */
+function filterPatchCols_(patch, allowedCols) {
+  const allowed = new Set(allowedCols);
+  const out = {};
+  Object.keys(patch).forEach((key) => {
+    const colIdx = Number(key);
+    if (allowed.has(colIdx)) out[colIdx] = patch[colIdx];
+  });
+  return out;
 }

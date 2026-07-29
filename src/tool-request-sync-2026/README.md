@@ -33,9 +33,10 @@ Sheet 2026  (INSERT nếu ID BOKT mới / UPDATE nếu đã có)
 - Installable trigger chạy với quyền user đã authorize; mỗi edit hợp lệ sẽ sync — tránh paste hàng nghìn dòng một lúc (quota Apps Script ~6 phút/execution).
 - `EXCHANGE_RATE` để `null` thì cột Tỷ giá / Thành tiền (USD) trống cho đến khi Admin cấu hình.
 
-**Bugfix (data validation / template rows)**
-- Sheet `2026` thường có ~1000 dòng template (Tháng + checkbox) và dropdown NCC ở cột I. Script tái sử dụng dòng có ID BOKT trống và `clearDataValidations()` trên range trước khi `setValues`, tránh lỗi `I1001 violates the data validation rules`.
-- `SYNC_LOG` cũng được gỡ validation khi ensure (phòng trường hợp sheet được tạo bằng cách duplicate từ `2026`).
+**Bảo vệ cột manual / công thức**
+- Script chỉ ghi sparse theo cột sync (D,E,J,K,L,M,U,V,Y + A/F/G/H lúc INSERT).
+- Không ghi B/C/I/N/O/P/Q/R/S/T/W/X → giữ checkbox, dropdown NCC, công thức Thành tiền và format gốc.
+- INSERT tái sử dụng dòng có ID BOKT trống trong template ~1000 dòng.
 
 ---
 
@@ -170,14 +171,11 @@ Rollback code: trong Apps Script → **Version history** / `clasp pull` từ com
 |---|---|---|
 | `SOURCE_SHEET_NAME` | Tab nguồn | `Tool Request` |
 | `TARGET_SHEET_NAME` | Tab đích (QUẢN LÝ TOOLS 2026) | `2026` |
-| `DEFAULT_VALUES.CHANNEL` | Channel mặc định | `mkt0008` |
-| `DEFAULT_VALUES.SUB_CHANNEL` | Sub channel | `Softwares Licenses` |
-| `DEFAULT_VALUES.PIC` / `BRAND` | PIC / Brand mặc định khi INSERT | `''` |
-| `DEFAULT_VALUES.STATUS` | Status khi nguồn trống | `PENDING` |
-| `EXCHANGE_RATE` | Tỷ giá USD→PNT | `null` (để trống N/O) |
+| `DEFAULT_VALUES.CHANNEL` | Channel mặc định (INSERT) | `mkt0008` |
+| `DEFAULT_VALUES.SUB_CHANNEL` | Sub channel (INSERT) | `Softwares Licenses` |
+| `MANUAL_TARGET_COLS` | Cột nhân viên điền tay — không sync | xem Config.gs |
 | `LOCK_WAIT_MS` | Thời gian chờ lock | `30000` |
 | `LOG_MAX_ROWS` | Giới hạn dòng log | `5000` |
-| `NCC_LOOKUP.ENABLED` | Bật tra cứu sheet `infor` | `false` |
 
 Nếu tab đích được đổi tên thành đúng `QUẢN LÝ TOOLS 2026`, chỉ cần sửa `TARGET_SHEET_NAME`.
 
@@ -195,9 +193,9 @@ Nếu tab đích được đổi tên thành đúng `QUẢN LÝ TOOLS 2026`, ch�
 - [ ] Thiếu cả USD & VNĐ → SKIP + log `Thiếu thông tin chi phí`
 - [ ] Có cả USD & VNĐ → ưu tiên USD + warning trong log
 - [ ] VNĐ only → DVT=`PNT`, Tỷ giá=`1`, Thành tiền=Cost
-- [ ] USD + `EXCHANGE_RATE` → Thành tiền = Cost × tỷ giá
-- [ ] Cột Admin (B,C,F,P,Q,R,S,W,X) không bị ghi đè khi UPDATE
-- [ ] Status chỉ UPDATE khi Tool Request!T có giá trị
+- [ ] Tỷ giá / Thành tiền không bị script ghi (công thức O vẫn chạy sau khi điền N)
+- [ ] Cột manual (B,C,I,N,O,P,Q,R,S,T,W,X) không bị ghi đè khi INSERT/UPDATE
+- [ ] Dropdown NCC + checkbox duyệt giữ nguyên định dạng
 - [ ] `SYNC_LOG` ghi INSERT/UPDATE/SKIP/ERROR/DUPLICATE theo batch
 - [ ] Hai user sync cùng lúc: một bên nhận lock timeout an toàn
 - [ ] **Kiểm tra dữ liệu trùng** phát hiện ID lặp trên `2026`
@@ -207,15 +205,31 @@ Nếu tab đích được đổi tên thành đúng `QUẢN LÝ TOOLS 2026`, ch�
 
 ## Mapping nhanh
 
+### Cột sync tự động
+
 | Tool Request | 2026 |
 |---|---|
 | E Vị trí sử dụng | D Team QL |
 | S ID BOKT | E ID BOKT |
-| (lần đầu sync) | F Ngày tạo phiếu |
-| B Tên tool | I NCC |
+| (lần đầu sync) | F Ngày tạo phiếu + A Tháng + G/H Channel |
 | D Chi tiết | J Nội dung phiếu |
 | Q Thông tin thanh toán | K Thông tin thanh toán |
-| H hoặc I | L Cost + M DVT + N Tỷ giá + O Thành tiền |
-| T Tình trạng thanh toán | T Status |
+| H hoặc I | L Cost + M DVT |
 | F / G | U / V |
 | U Ngày gia hạn | Y Thời gian sử dụng |
+
+### Cột nhân viên điền tay (script **không** ghi đè — giữ format / công thức / dropdown)
+
+| Cột 2026 | Ghi chú |
+|---|---|
+| B Group nội bộ duyệt | Checkbox |
+| C Group Mua tool | Checkbox |
+| I NCC | Dropdown / chọn tay |
+| N Tỷ giá | Điền tay |
+| O Thành tiền | Công thức sheet (theo Tỷ giá) |
+| P Brand | |
+| Q PIC phiếu | |
+| R Leader / S A Alex | Checkbox duyệt |
+| T Status (Admin update) | Admin |
+| W ID BOKT tháng trước | |
+| X Note | |
