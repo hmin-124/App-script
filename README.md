@@ -22,4 +22,5 @@ clasp push
 
 ```bash
 node src/tool-request-sync-2026/tests/sync-logic.test.js
+node src/tool-request-sync-2026/tests/admin-message.test.js
 ```
