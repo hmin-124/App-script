@@ -1,13 +1,13 @@
 /**
  * Menu.gs
  * ---------------------------------------------------------------------------
- * Builds the "Admin Tools" custom menu. Kept separate from Code.gs so the
- * menu STRUCTURE (labels, items, ordering) can be extended independently
- * from the handler LOGIC that each item triggers.
+ * Builds custom menus. Kept separate from Code.gs so the menu STRUCTURE
+ * (labels, items, ordering) can be extended independently from the handler
+ * LOGIC that each item triggers.
  *
- * Extending the menu later (see the roadmap in Code.gs) is just one more
- * `.addItem(...)` line here plus one new handler function in Code.gs - no
- * existing code needs to change.
+ * Two menus:
+ *   - 🛠️ Admin Tools     → monthly request sheet + Lead/Head messages
+ *   - 🛒 Tool Request    → sheet-based "mua Tool mới" Preview/Send/Reset
  */
 
 /**
@@ -17,15 +17,21 @@
  */
 function onOpen() {
   try {
-    SpreadsheetApp.getUi()
-      .createMenu(Config.MENU_NAME)
+    const ui = SpreadsheetApp.getUi();
+
+    ui.createMenu(Config.MENU_NAME)
       .addItem(Config.MENU_ITEM_GENERATE, 'onGenerateRequestSheetClick')
       .addItem(Config.MENU_ITEM_LEAD_MESSAGE, 'onCreateLeadMessageClick')
       .addItem(Config.MENU_ITEM_HEAD_MESSAGE, 'onCreateHeadMessageClick')
-      .addItem(Config.MENU_ITEM_NEW_TOOL_REQUEST, 'onCreateNewToolRequestClick')
-      // Future menu items can be appended here, e.g.:
-      // .addItem('Generate BOKT', 'onGenerateBoktClick')
-      // .addItem('Archive Sheet', 'onArchiveSheetClick')
+      .addToUi();
+
+    ui.createMenu(Config.TOOL_REQUEST_MENU_NAME)
+      .addItem(Config.TOOL_REQUEST_MENU_PREVIEW, 'previewNewToolRequest')
+      .addItem(Config.TOOL_REQUEST_MENU_SEND, 'sendNewToolRequest')
+      .addItem(Config.TOOL_REQUEST_MENU_RESEND, 'resendNewToolRequest')
+      .addSeparator()
+      .addItem(Config.TOOL_REQUEST_MENU_RESET, 'resetNewToolRequestForm')
+      .addItem(Config.TOOL_REQUEST_MENU_SETUP, 'setupNewToolRequestTemplate')
       .addToUi();
   } catch (error) {
     console.error(`onOpen: ${error.message}`);

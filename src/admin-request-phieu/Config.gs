@@ -72,9 +72,38 @@ class Config {
     return '📨 Tạo tin nhắn Head duyệt';
   }
 
-  /** @returns {string} Menu item label that opens the "Request mua Tool mới" form. */
-  static get MENU_ITEM_NEW_TOOL_REQUEST() {
-    return '🆕 Tạo tin nhắn Request mua Tool mới';
+  /**
+   * @returns {string} Top-level menu for the sheet-based "Request mua Tool mới"
+   * workflow (separate from Admin Tools so Admin can find Preview/Send/Reset
+   * next to the NEW_TOOL_REQUEST form sheet).
+   */
+  static get TOOL_REQUEST_MENU_NAME() {
+    return '🛒 Tool Request';
+  }
+
+  /** @returns {string} Menu item: preview message without sending to Chat. */
+  static get TOOL_REQUEST_MENU_PREVIEW() {
+    return 'Preview Request';
+  }
+
+  /** @returns {string} Menu item: validate + send to Google Chat webhook. */
+  static get TOOL_REQUEST_MENU_SEND() {
+    return 'Send Request';
+  }
+
+  /** @returns {string} Menu item: force re-send after confirmation. */
+  static get TOOL_REQUEST_MENU_RESEND() {
+    return 'Resend Request';
+  }
+
+  /** @returns {string} Menu item: clear input cells on the form sheet. */
+  static get TOOL_REQUEST_MENU_RESET() {
+    return 'Reset Form';
+  }
+
+  /** @returns {string} Menu item: create/refresh NEW_TOOL_REQUEST (+ LOG) sheets. */
+  static get TOOL_REQUEST_MENU_SETUP() {
+    return 'Setup Template';
   }
 
   // ---------------------------------------------------------------------
@@ -383,28 +412,315 @@ class Config {
   }
 
   // ---------------------------------------------------------------------
-  // "Request mua Tool mới" message (NewToolRequestService) - built ENTIRELY
-  // from an on-screen form, never from any sheet - a brand-new tool has no
-  // tracker/request-sheet row yet at the time this message is sent.
+  // Sheet-based "Request mua Tool mới" (NEW_TOOL_REQUEST form + Chat webhook)
   // ---------------------------------------------------------------------
 
-  /** @returns {string} Default "Brand triển khai" value pre-filled in the form. */
-  static get NEW_TOOL_REQUEST_DEFAULT_BRAND() {
+  /** @returns {string} Form sheet name (Column A = label, B = value, C = example). */
+  static get NEW_TOOL_FORM_SHEET_NAME() {
+    return 'NEW_TOOL_REQUEST';
+  }
+
+  /** @returns {string} Append-only send history sheet. */
+  static get NEW_TOOL_LOG_SHEET_NAME() {
+    return 'NEW_TOOL_REQUEST_LOG';
+  }
+
+  /** @returns {string} Date format used in messages and Sent At display. */
+  static get NEW_TOOL_DATE_FORMAT() {
+    return 'dd/MM/yyyy';
+  }
+
+  /** @returns {number} Default VAT rate as a fraction (10% → 0.10). */
+  static get NEW_TOOL_DEFAULT_VAT_RATE() {
+    return 0.1;
+  }
+
+  /** @returns {string} Default Brand / Project prefilled on Setup Template. */
+  static get NEW_TOOL_DEFAULT_BRAND() {
     return 'All brand';
   }
 
-  /** @returns {string} Default currency pre-filled in the form (Price/GTGT/TOTAL all share one currency). */
-  static get NEW_TOOL_REQUEST_DEFAULT_CURRENCY() {
+  /** @returns {string} Default Currency prefilled on Setup Template. */
+  static get NEW_TOOL_DEFAULT_CURRENCY() {
     return 'USD';
   }
 
-  /** @returns {number} Default VAT percentage pre-filled in the form (Vietnam's standard VAT rate). */
-  static get NEW_TOOL_REQUEST_DEFAULT_VAT_PERCENT() {
-    return 10;
+  /** @returns {{DRAFT:string, SENT:string, ERROR:string}} Form / log status values. */
+  static get NEW_TOOL_STATUS() {
+    return Object.freeze({
+      DRAFT: 'Draft',
+      SENT: 'Sent',
+      ERROR: 'Error',
+    });
   }
 
-  /** @returns {string} Closing lines appended to the end of the "Request mua Tool mới" message. */
-  static get NEW_TOOL_REQUEST_CLOSING() {
-    return 'Nhờ anh duyệt giúp em đề xuất mua Tool mới này ạ.\nCám ơn anh!';
+  /** @returns {string[]} Currency dropdown options. */
+  static get NEW_TOOL_CURRENCIES() {
+    return ['USD', 'THB', 'VND', 'USDT', 'USDC', 'EUR'];
+  }
+
+  /** @returns {string[]} Payment Method dropdown options. */
+  static get NEW_TOOL_PAYMENT_METHODS() {
+    return [
+      'Bank Transfer',
+      'Visa Card',
+      'MasterCard',
+      'PayPal',
+      'USDT ERC20',
+      'USDT TRC20',
+      'USDC ERC20',
+      'Crypto Wallet',
+      'Other',
+    ];
+  }
+
+  /** @returns {string[]} VAT Rate dropdown labels (stored as percent-formatted numbers). */
+  static get NEW_TOOL_VAT_RATE_LABELS() {
+    return ['0%', '7%', '10%'];
+  }
+
+  /**
+   * Ordered form fields. `row` is 1-based on NEW_TOOL_REQUEST (row 1 = title,
+   * row 2 = column headers). `kind`:
+   *  - input     : Admin types here (cleared by Reset)
+   *  - computed  : formula / script-owned (Reset restores formula or blank)
+   *  - system    : Status / Sent At / Message ID (script-owned)
+   * @returns {Array<Object>}
+   */
+  static get NEW_TOOL_FORM_FIELDS() {
+    return [
+      { key: 'department', label: 'Department / Team', row: 3, kind: 'input', required: true, example: 'SEO TECH' },
+      {
+        key: 'requestTitle',
+        label: 'Request Title',
+        row: 4,
+        kind: 'input',
+        required: true,
+        example: 'Đề xuất giải ngân NCC AHREFS - Tháng 08/2026',
+      },
+      { key: 'requestId', label: 'Request ID', row: 5, kind: 'input', required: true, example: '3513368' },
+      { key: 'toolName', label: 'Tool Name', row: 6, kind: 'input', required: true, example: 'AHREFS' },
+      {
+        key: 'toolFeatures',
+        label: 'Tool Features',
+        row: 7,
+        kind: 'input',
+        required: true,
+        example: 'Phân tích backlink, keyword, đối thủ và technical SEO',
+      },
+      {
+        key: 'packageInformation',
+        label: 'Package Information',
+        row: 8,
+        kind: 'input',
+        required: true,
+        example: 'Ahrefs Standard - Monthly',
+      },
+      {
+        key: 'deploymentStartDate',
+        label: 'Deployment Start Date',
+        row: 9,
+        kind: 'input',
+        required: true,
+        example: '29/07/2026',
+        format: 'date',
+      },
+      {
+        key: 'deploymentEndDate',
+        label: 'Deployment End Date',
+        row: 10,
+        kind: 'input',
+        required: true,
+        example: '28/08/2026',
+        format: 'date',
+      },
+      {
+        key: 'deploymentDuration',
+        label: 'Deployment Duration',
+        row: 11,
+        kind: 'computed',
+        required: false,
+        example: 'Tự động = End − Start + 1 (ngày)',
+        format: 'number',
+      },
+      {
+        key: 'brandProject',
+        label: 'Brand / Project',
+        row: 12,
+        kind: 'input',
+        required: true,
+        example: 'All brand',
+        defaultValue: 'All brand',
+      },
+      {
+        key: 'basePrice',
+        label: 'Base Price',
+        row: 13,
+        kind: 'input',
+        required: true,
+        example: '249',
+        format: 'money',
+      },
+      {
+        key: 'currency',
+        label: 'Currency',
+        row: 14,
+        kind: 'input',
+        required: true,
+        example: 'USD',
+        defaultValue: 'USD',
+        validation: 'currency',
+      },
+      {
+        key: 'vatRate',
+        label: 'VAT Rate',
+        row: 15,
+        kind: 'input',
+        required: true,
+        example: '10%',
+        format: 'percent',
+        validation: 'vat',
+        defaultValue: 0.1,
+      },
+      {
+        key: 'vatAmount',
+        label: 'VAT Amount',
+        row: 16,
+        kind: 'computed',
+        required: false,
+        example: 'Tự động = Base Price × VAT Rate',
+        format: 'money',
+      },
+      {
+        key: 'totalAmount',
+        label: 'Total Amount',
+        row: 17,
+        kind: 'computed',
+        required: false,
+        example: 'Tự động = Base Price + VAT Amount',
+        format: 'money',
+      },
+      {
+        key: 'paymentMethod',
+        label: 'Payment Method',
+        row: 18,
+        kind: 'input',
+        required: true,
+        example: 'Bank Transfer',
+        validation: 'payment',
+      },
+      {
+        key: 'accountNumber',
+        label: 'Account Number / Wallet',
+        row: 19,
+        kind: 'input',
+        required: false,
+        example: '4GWJL268DKZRC8L',
+      },
+      {
+        key: 'recipientName',
+        label: 'Recipient Name',
+        row: 20,
+        kind: 'input',
+        required: false,
+        example: 'NGUYEN THI MY XUYEN',
+      },
+      {
+        key: 'bankName',
+        label: 'Bank Name / Network',
+        row: 21,
+        kind: 'input',
+        required: false,
+        example: 'VIETINBANK',
+      },
+      {
+        key: 'paymentNote',
+        label: 'Payment Note',
+        row: 22,
+        kind: 'input',
+        required: false,
+        example: 'Nội dung chuyển khoản (tuỳ chọn)',
+      },
+      {
+        key: 'businessPurpose',
+        label: 'Business Purpose / Note',
+        row: 23,
+        kind: 'input',
+        required: true,
+        example: 'Phục vụ SEO Tech dự án A',
+      },
+      {
+        key: 'approverName',
+        label: 'Approver Name',
+        row: 24,
+        kind: 'input',
+        required: false,
+        example: 'anh',
+      },
+      {
+        key: 'requesterName',
+        label: 'Requester Name',
+        row: 25,
+        kind: 'input',
+        required: true,
+        example: 'Henry',
+      },
+      {
+        key: 'chatWebhookKey',
+        label: 'Chat Webhook Key',
+        row: 26,
+        kind: 'input',
+        required: true,
+        example: 'CHAT_WEBHOOK_SEO_TECH',
+      },
+      {
+        key: 'status',
+        label: 'Status',
+        row: 27,
+        kind: 'system',
+        required: false,
+        example: 'Draft / Sent / Error',
+        validation: 'status',
+        defaultValue: 'Draft',
+      },
+      {
+        key: 'sentAt',
+        label: 'Sent At',
+        row: 28,
+        kind: 'system',
+        required: false,
+        example: 'Tự động khi gửi thành công',
+      },
+      {
+        key: 'messageId',
+        label: 'Message ID',
+        row: 29,
+        kind: 'system',
+        required: false,
+        example: 'Tự động (UUID) khi gửi',
+      },
+    ];
+  }
+
+  /** @returns {string[]} Headers for NEW_TOOL_REQUEST_LOG (append order). */
+  static get NEW_TOOL_LOG_HEADERS() {
+    return [
+      'Timestamp',
+      'Message ID',
+      'Request ID',
+      'Department',
+      'Tool Name',
+      'Package',
+      'Base Price',
+      'VAT Amount',
+      'Total Amount',
+      'Currency',
+      'Payment Method',
+      'Requester',
+      'Status',
+      'HTTP Status',
+      'Error Message',
+      'Message Content',
+    ];
   }
 }
