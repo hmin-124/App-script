@@ -35,19 +35,17 @@ class MessageService {
    * @private
    */
   _getRequestSheet() {
-    const namePattern = new RegExp(`^${Config.REQUEST_SHEET_PREFIX}\\d{1,2}\\.\\d{4}$`, 'i');
-
     const activeSheet = this.spreadsheet.getActiveSheet();
-    if (activeSheet && namePattern.test(activeSheet.getName())) {
+    if (activeSheet && Utils.matchRequestSheetName(activeSheet.getName())) {
       return activeSheet;
     }
 
     let latestSheet = null;
     let latestOrdinal = -Infinity;
     this.spreadsheet.getSheets().forEach((sheet) => {
-      if (!namePattern.test(sheet.getName())) return;
-      const { month, year } = Utils.parseSheetName(sheet.getName());
-      const ordinal = year * 12 + month;
+      const parsed = Utils.matchRequestSheetName(sheet.getName());
+      if (!parsed) return;
+      const ordinal = parsed.year * 12 + parsed.month;
       if (ordinal > latestOrdinal) {
         latestOrdinal = ordinal;
         latestSheet = sheet;
@@ -56,7 +54,7 @@ class MessageService {
 
     if (!latestSheet) {
       throw new UserFacingError(
-        `Không tìm thấy sheet Request nào (dạng "${Config.REQUEST_SHEET_PREFIX}n.yyyy"). ` +
+        `Không tìm thấy sheet Request nào (dạng "${Config.REQUEST_SHEET_PREFIX}n.yyyy" hoặc "... ${Config.REQUEST_SHEET_PREFIX}n.yyyy"). ` +
           'Vui lòng mở sheet Request cần tạo tin nhắn rồi thử lại.'
       );
     }
