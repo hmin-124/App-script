@@ -211,25 +211,26 @@ Nếu tab đích được đổi tên thành đúng `QUẢN LÝ TOOLS 2026`, ch�
 |---|---|
 | E Vị trí sử dụng | D Team QL |
 | S ID BOKT | E ID BOKT |
-| (lần đầu sync) | F Ngày tạo phiếu + A Tháng + G/H Channel |
-| D Chi tiết | J Nội dung phiếu |
-| Q Thông tin thanh toán | K Thông tin thanh toán |
-| H hoặc I | L Cost + M DVT |
-| F / G | U / V |
-| U Ngày gia hạn | Y Thời gian sử dụng |
+| D Chi tiết → parse `tool … T8/2026` | **G Tên tool** |
+| D Chi tiết | K Nội dung phiếu |
+| Q Thông tin thanh toán | L Thông tin thanh toán |
+| H hoặc I | M Cost + N DVT |
+| F / G | V / W loại TT / gia hạn |
+| U Ngày gia hạn | Z Thời gian sử dụng |
+| (INSERT) | A Tháng + H/I Channel defaults |
 
-### Cột nhân viên điền tay (script **không** ghi đè — giữ format / công thức / dropdown)
+### Cột nhân viên điền tay (script **không** ghi đè)
 
 | Cột 2026 | Ghi chú |
 |---|---|
-| B Group nội bộ duyệt | Checkbox |
-| C Group Mua tool | Checkbox |
-| I NCC | Dropdown / chọn tay |
-| N Tỷ giá | Điền tay |
-| O Thành tiền | Công thức sheet (theo Tỷ giá) |
-| P Brand | |
-| Q PIC phiếu | |
-| R Leader / S A Alex | Checkbox duyệt |
-| T Status (Admin update) | Admin |
-| W ID BOKT tháng trước | |
-| X Note | |
+| B/C Group duyệt | Checkbox |
+| **F Ngày tạo phiếu** | Điền tay |
+| J NCC | Dropdown / chọn tay |
+| O Tỷ giá | Điền tay |
+| P Thành tiền | Công thức sheet |
+| Q Brand / R PIC | |
+| S/T Leader – A Alex | Checkbox |
+| U Status (Admin) | |
+| X ID BOKT tháng trước / Y Note | |
+
+**Parse Tên tool:** `[Dev SEO M5] - Request gia hạn tool Cloudflare T8/2026` → `Cloudflare`. Nếu không parse được → fallback `Tool Request!B` + warning trong log.

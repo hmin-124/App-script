@@ -53,6 +53,7 @@ function loadProject() {
       parseNumber_,
       validateSourceRecord_,
       resolveCostAndCurrency_,
+      extractToolNameFromContent_,
       mapSourceToTarget_,
       filterPatchCols_,
       allocateTargetInsertRows_,
@@ -114,6 +115,7 @@ function run() {
     parseNumber_,
     validateSourceRecord_,
     resolveCostAndCurrency_,
+    extractToolNameFromContent_,
     mapSourceToTarget_,
     filterPatchCols_,
     allocateTargetInsertRows_,
@@ -183,12 +185,30 @@ function run() {
   assertEqual(cost.dvt, 'PNT', 'vnd → PNT');
   assertEqual(cost.cost, 500000, 'pnt cost');
 
+  // --- extract tool name from nội dung phiếu ---
+  const parsed = extractToolNameFromContent_(
+    '[Dev SEO M5] - Request gia hạn tool Cloudflare T8/2026',
+    'Other'
+  );
+  assertEqual(parsed.toolName, 'Cloudflare', 'parse Cloudflare');
+  assertEqual(parsed.warning, '', 'no parse warning');
+
+  const multi = extractToolNameFromContent_(
+    '[Dev SEO M5] - Request gia hạn tool Amazon Web Services T8/2026\nbody text',
+    ''
+  );
+  assertEqual(multi.toolName, 'Amazon Web Services', 'multi-word tool');
+
+  const fallback = extractToolNameFromContent_('No tool token here', 'N8N');
+  assertEqual(fallback.toolName, 'N8N', 'fallback to col B');
+  assert(fallback.warning.length > 0, 'fallback warns');
+
   // --- mapping: sync cols only; manual cols absent ---
   const record = {
     rowNumber: 5,
     values: makeSourceValues({
       1: '  N8N  Cloud ',
-      3: 'Chi tiết gói',
+      3: '[Dev SEO M5] - Request gia hạn tool Cloudflare T8/2026',
       4: 'Dev M5',
       5: 'Gia hạn',
       6: 'Mua theo tháng',
@@ -206,12 +226,13 @@ function run() {
   const TC = CONFIG.TARGET_COLS;
   assertEqual(mapped.insertPatch[TC.TEAM], 'Dev M5', 'team');
   assertEqual(mapped.insertPatch[TC.ID_BOKT], '3513372', 'id');
+  assertEqual(mapped.insertPatch[TC.TOOL_NAME], 'Cloudflare', 'G Tên tool from content');
   assertEqual(mapped.insertPatch[TC.CHANNEL], 'mkt0008', 'default channel');
   assertEqual(mapped.insertPatch[TC.COST], 34.2, 'cost');
   assertEqual(mapped.insertPatch[TC.DVT], 'USD', 'dvt');
-  assertEqual(mapped.updatePatch[TC.COST], 34.2, 'update cost');
+  assertEqual(mapped.updatePatch[TC.TOOL_NAME], 'Cloudflare', 'update tool name');
 
-  // Manual columns must NOT appear in either patch
+  // Manual columns must NOT appear (incl. F Ngày tạo phiếu)
   CONFIG.MANUAL_TARGET_COLS.forEach((colIdx) => {
     assert(
       !Object.prototype.hasOwnProperty.call(mapped.insertPatch, colIdx),
@@ -222,6 +243,7 @@ function run() {
       `updatePatch must not contain manual col ${colIdx}`
     );
   });
+  assertEqual(mapped.insertPatch[TC.CREATED_AT], undefined, 'F Ngày tạo phiếu not synced');
 
   // INSERT-only fields absent from update patch
   CONFIG.INSERT_ONLY_TARGET_COLS.forEach((colIdx) => {
@@ -236,11 +258,13 @@ function run() {
   });
 
   // filterPatchCols_ defense
-  const dirty = Object.assign({}, mapped.updatePatch, { [TC.NCC]: 'HACK', [TC.STATUS]: 'X' });
+  const dirty = Object.assign({}, mapped.updatePatch, { [TC.NCC]: 'HACK', [TC.STATUS]: 'X', [TC.CREATED_AT]: new Date() });
   const cleaned = filterPatchCols_(dirty, CONFIG.UPDATABLE_TARGET_COLS);
   assertEqual(cleaned[TC.NCC], undefined, 'filter drops NCC');
   assertEqual(cleaned[TC.STATUS], undefined, 'filter drops Status');
+  assertEqual(cleaned[TC.CREATED_AT], undefined, 'filter drops Created At');
   assertEqual(cleaned[TC.COST], 34.2, 'filter keeps Cost');
+  assertEqual(cleaned[TC.TOOL_NAME], 'Cloudflare', 'filter keeps Tên tool');
 
   // --- allocateTargetInsertRows_ ---
   const sheet = makeSheetMock(['111', '', '', '222', '']);
