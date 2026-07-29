@@ -39,41 +39,58 @@ class TemplateService {
   }
 
   /**
-   * Finds the most recent existing request sheet ("T{n}.{yyyy}") that is
-   * chronologically BEFORE the given target month/year - i.e. "tháng gần
-   * nhất" relative to the month being generated. This is dynamic on
-   * purpose: if an admin ever skips a month, the tool still finds the
-   * closest real template instead of assuming a fixed "target - 1" name.
+   * Finds the most recent existing request sheet ("T{n}.{yyyy}", or a
+   * common prefixed variant such as "Copy of T{n}.{yyyy}" / "Dev SEO
+   * T{n}.{yyyy}") that is chronologically BEFORE the given target
+   * month/year - i.e. "tháng gần nhất" relative to the month being
+   * generated. This is dynamic on purpose: if an admin ever skips a month,
+   * the tool still finds the closest real template instead of assuming a
+   * fixed "target - 1" name.
+   *
+   * Fallback: if no earlier-month sheet exists, reuse a same-month sheet
+   * that was renamed away from the canonical target name (e.g. "Copy of
+   * T8.2026" when generating "T8.2026"). Without this, a duplicated tab
+   * left the workbook with zero matchable templates and threw
+   * "Không tìm thấy Template.".
    * @param {number} targetMonth - 1-12.
    * @param {number} targetYear
    * @returns {GoogleAppsScript.Spreadsheet.Sheet}
    * @throws {UserFacingError} When no eligible template sheet exists.
    */
   findLatestTemplateSheet(targetMonth, targetYear) {
-    const namePattern = new RegExp(`^${Config.REQUEST_SHEET_PREFIX}(\\d{1,2})\\.(\\d{4})$`, 'i');
     const targetOrdinal = targetYear * 12 + targetMonth;
+    const targetCanonicalName = `${Config.REQUEST_SHEET_PREFIX}${targetMonth}.${targetYear}`;
 
-    let bestSheet = null;
-    let bestOrdinal = -Infinity;
+    let bestBeforeSheet = null;
+    let bestBeforeOrdinal = -Infinity;
+    let sameMonthAlternateSheet = null;
 
     this.spreadsheet.getSheets().forEach((sheet) => {
-      const match = sheet.getName().match(namePattern);
-      if (!match) return;
+      const name = sheet.getName();
+      const parsed = Utils.matchRequestSheetName(name);
+      if (!parsed) return;
 
-      const month = Number(match[1]);
-      const year = Number(match[2]);
-      const ordinal = year * 12 + month;
+      const ordinal = parsed.year * 12 + parsed.month;
+      if (ordinal < targetOrdinal && ordinal > bestBeforeOrdinal) {
+        bestBeforeOrdinal = ordinal;
+        bestBeforeSheet = sheet;
+        return;
+      }
 
-      if (ordinal < targetOrdinal && ordinal > bestOrdinal) {
-        bestOrdinal = ordinal;
-        bestSheet = sheet;
+      // Same month/year but not the exact canonical target name - e.g.
+      // "Copy of T8.2026" while we are about to create "T8.2026".
+      if (ordinal === targetOrdinal && name !== targetCanonicalName) {
+        sameMonthAlternateSheet = sheet;
       }
     });
 
-    if (!bestSheet) {
-      throw new UserFacingError('Không tìm thấy Template.');
+    const templateSheet = bestBeforeSheet || sameMonthAlternateSheet;
+    if (!templateSheet) {
+      throw new UserFacingError(
+        `Không tìm thấy Template (cần sheet dạng "T{n}.{yyyy}" hoặc "... T{n}.{yyyy}" trước tháng ${targetCanonicalName}).`
+      );
     }
-    return bestSheet;
+    return templateSheet;
   }
 
   /**

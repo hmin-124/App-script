@@ -131,6 +131,28 @@ thêm SAU nhóm "Gia hạn") bị bỏ sót hoàn toàn — không phải do l�
    sai (do công thức cũ chưa được sửa) cho tới khi Admin tự sửa lại công
    thức đó bằng tay, hoặc Generate lại sheet.
 
+### Bug đã fix (báo cáo ngày 29/07/2026) — "Không tìm thấy Template."
+
+**Triệu chứng**: chạy **🛠️ Admin Tools → 📄 Generate Request Sheet** báo popup
+`Không tìm thấy Template.`, dù workbook vẫn còn sheet Request tháng trước
+(ví dụ tab `Dev SEO T7.2026`) và/hoặc bản nhân đôi (`Copy of T8.2026`).
+
+**Nguyên nhân gốc**: `TemplateService.findLatestTemplateSheet()` (và
+`MessageService._getRequestSheet()`) chỉ nhận tên sheet **đúng nguyên**
+`^T{n}.{yyyy}$`. Google Sheets tự đổi tên khi Duplicate thành
+`Copy of T8.2026`, và Admin đôi khi gắn thêm prefix team (`Dev SEO
+T7.2026`) — cả hai đều bị bỏ qua → không còn template nào khớp.
+
+**Fix**:
+1. `Utils.matchRequestSheetName()` / `parseSheetName()` nhận mọi tên sheet
+   **kết thúc bằng** `T{n}.{yyyy}` (canonical hoặc có prefix).
+2. `TemplateService` ưu tiên sheet tháng gần nhất trước tháng đích; nếu
+   không có thì fallback sang sheet cùng tháng nhưng khác tên canonical
+   (ví dụ `Copy of T8.2026` khi đang tạo `T8.2026`).
+3. `MessageService` dùng chung matcher — đang đứng ở tab `Copy of T8.2026`
+   vẫn tạo được tin Lead/Head duyệt.
+4. Regression test Node.js: `tests/template-name-matching.test.js`.
+
 ## 2. Kiến trúc đề xuất
 
 ```
@@ -361,6 +383,11 @@ trên) — mọi phép giãn công thức trong test phải đến từ chính
   `UserFacingError` báo rõ tên cột thiếu.
 - **Không có Template phù hợp** (xoá hết sheet T*.2026) → `UserFacingError`
   "Không tìm thấy Template.".
+- **Regression bug 29/07/2026**: workbook chỉ còn `Dev SEO T7.2026` +
+  `Copy of T8.2026` (không còn tên canonical) → `TemplateService` vẫn chọn
+  `Dev SEO T7.2026` làm template cho `T8.2026`; chỉ còn `Copy of T8.2026`
+  thì fallback đúng sheet đó; `MessageService` nhận active tab prefixed.
+  Chạy: `node src/admin-request-phieu/tests/template-name-matching.test.js`.
 - **Từ chối ghi đè** khi sheet đã tồn tại → trả về `null`, không tạo/sửa gì.
 
 **`MessageService` (tin nhắn Lead/Head duyệt)** — cũng mô phỏng bằng Node.js

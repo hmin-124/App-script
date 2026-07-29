@@ -335,17 +335,44 @@ class Utils {
   }
 
   /**
-   * Parses a request-sheet name such as "T9.2026" into its month/year parts.
+   * Regex that matches a request-sheet month token at the END of a sheet
+   * name. Anchoring at the end (instead of requiring the whole name to be
+   * exactly "T{n}.{yyyy}") is intentional: Google Sheets auto-renames
+   * duplicates to "Copy of T8.2026", and Admins sometimes add a team/
+   * brand prefix ("Dev SEO T7.2026"). Both must still resolve as the
+   * request sheet for month 8/7 of 2026.
+   * @returns {RegExp}
+   */
+  static getRequestSheetNamePattern() {
+    return new RegExp(`${Config.REQUEST_SHEET_PREFIX}(\\d{1,2})\\.(\\d{4})$`, 'i');
+  }
+
+  /**
+   * Returns month/year when `sheetName` ends with "T{n}.{yyyy}" (canonical
+   * or prefixed), otherwise null. Prefer this over parseSheetName when
+   * scanning existing tabs - a non-match is a normal "skip this sheet"
+   * case, not an error.
+   * @param {string} sheetName
+   * @returns {{month:number, year:number}|null}
+   */
+  static matchRequestSheetName(sheetName) {
+    const match = String(sheetName || '').match(Utils.getRequestSheetNamePattern());
+    if (!match) return null;
+    return { month: Number(match[1]), year: Number(match[2]) };
+  }
+
+  /**
+   * Parses a request-sheet name such as "T9.2026" (or a prefixed variant
+   * like "Copy of T9.2026" / "Dev SEO T9.2026") into its month/year parts.
    * @param {string} sheetName
    * @returns {{month:number, year:number}}
    */
   static parseSheetName(sheetName) {
-    const pattern = new RegExp(`^${Config.REQUEST_SHEET_PREFIX}(\\d{1,2})\\.(\\d{4})$`, 'i');
-    const match = String(sheetName || '').match(pattern);
-    if (!match) {
+    const parsed = Utils.matchRequestSheetName(sheetName);
+    if (!parsed) {
       throw new Error(`Utils.parseSheetName: cannot parse sheet name "${sheetName}".`);
     }
-    return { month: Number(match[1]), year: Number(match[2]) };
+    return parsed;
   }
 
   // ---------------------------------------------------------------------
