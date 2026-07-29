@@ -2,6 +2,8 @@
  * LoggingService.gs
  * ---------------------------------------------------------------------------
  * Ensures SYNC_LOG exists and writes log rows in a single batch setValues().
+ * Clears data validations so a sheet copied from 2026 (NCC dropdown on col I)
+ * cannot reject long error-detail strings.
  */
 
 const LOG_HEADERS_ = [
@@ -18,25 +20,54 @@ const LOG_HEADERS_ = [
 ];
 
 /**
- * Create SYNC_LOG sheet with headers if missing.
+ * Create SYNC_LOG sheet with headers if missing; sanitize validations.
  * @returns {GoogleAppsScript.Spreadsheet.Sheet}
  */
 function ensureLogSheet_() {
   const ss = getSpreadsheet_();
   let sheet = ss.getSheetByName(CONFIG.LOG_SHEET_NAME);
+  let created = false;
+
   if (!sheet) {
     sheet = ss.insertSheet(CONFIG.LOG_SHEET_NAME);
-    sheet.getRange(1, 1, 1, LOG_HEADERS_.length).setValues([LOG_HEADERS_]);
+    created = true;
+  }
+
+  // Always strip validations on the log used range — SYNC_LOG is often created
+  // by duplicating sheet 2026, which carries NCC dropdown rules on column I.
+  sanitizeLogSheet_(sheet);
+
+  if (created || sheet.getLastRow() === 0) {
+    writeMatrix_(sheet, 1, 1, [LOG_HEADERS_]);
     sheet.setFrozenRows(1);
     try {
       sheet.getRange(1, 1, 1, LOG_HEADERS_.length).setFontWeight('bold');
     } catch (err) {
       // Non-critical formatting failure.
     }
-  } else if (sheet.getLastRow() === 0) {
-    sheet.getRange(1, 1, 1, LOG_HEADERS_.length).setValues([LOG_HEADERS_]);
+  } else {
+    // Ensure header row exists / is readable even if sheet pre-existed empty-ish.
+    const header = sheet.getRange(1, 1, 1, LOG_HEADERS_.length).getValues()[0];
+    const missingHeader = header.every((cell) => isBlank_(cell));
+    if (missingHeader) {
+      writeMatrix_(sheet, 1, 1, [LOG_HEADERS_]);
+    }
   }
+
   return sheet;
+}
+
+/**
+ * Clear data validations on SYNC_LOG columns A:J for the sheet's used grid.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ */
+function sanitizeLogSheet_(sheet) {
+  try {
+    const maxRows = Math.max(sheet.getMaxRows(), 1000);
+    sheet.getRange(1, 1, maxRows, LOG_HEADERS_.length).clearDataValidations();
+  } catch (err) {
+    console.log(`sanitizeLogSheet_ failed: ${err}`);
+  }
 }
 
 /**
@@ -83,8 +114,10 @@ function writeSyncLogs_(logs) {
     ];
   });
 
-  const startRow = Math.max(sheet.getLastRow() + 1, CONFIG.LOG_DATA_START_ROW);
-  sheet.getRange(startRow, 1, matrix.length, LOG_HEADERS_.length).setValues(matrix);
+  // Append after last Timestamp value — ignore template noise in other cols.
+  const lastTsRow = findLastRowByColumn_(sheet, 1, 1);
+  const startRow = Math.max(lastTsRow + 1, CONFIG.LOG_DATA_START_ROW);
+  writeMatrix_(sheet, startRow, 1, matrix);
 
   if (CONFIG.LOG_MAX_ROWS > 0) {
     trimLogSheet_(sheet);
@@ -96,12 +129,11 @@ function writeSyncLogs_(logs) {
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
  */
 function trimLogSheet_(sheet) {
-  const lastRow = sheet.getLastRow();
-  const dataRows = lastRow - 1;
+  const lastRow = findLastRowByColumn_(sheet, CONFIG.LOG_DATA_START_ROW, 1);
+  const dataRows = Math.max(0, lastRow - 1);
   if (dataRows <= CONFIG.LOG_MAX_ROWS) return;
 
   const removeCount = dataRows - CONFIG.LOG_MAX_ROWS;
-  // Delete oldest data rows (starting at row 2).
   sheet.deleteRows(CONFIG.LOG_DATA_START_ROW, removeCount);
 }
 

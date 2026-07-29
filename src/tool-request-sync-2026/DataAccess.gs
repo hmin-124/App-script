@@ -136,11 +136,14 @@ function readAllSourceRows_() {
 
 /**
  * Build ID→row map for target sheet column E. Detect duplicate IDs.
+ * Scans by ID BOKT column only so pre-filled template rows (month +
+ * checkbox false) do not inflate the working range.
  * @returns {{map: Map<string, number>, duplicates: Set<string>, lastDataRow: number}}
  */
 function buildTargetIdMap_() {
   const sheet = getSheetByName_(CONFIG.TARGET_SHEET_NAME, true);
-  const lastDataRow = findLastDataRow_(sheet, CONFIG.TARGET_DATA_START_ROW, CONFIG.TARGET_NUM_COLS);
+  const idCol = CONFIG.TARGET_COLS.ID_BOKT + 1;
+  const lastDataRow = findLastRowByColumn_(sheet, CONFIG.TARGET_DATA_START_ROW, idCol);
   const map = new Map();
   const duplicates = new Set();
 
@@ -149,8 +152,7 @@ function buildTargetIdMap_() {
   }
 
   const numRows = lastDataRow - CONFIG.TARGET_DATA_START_ROW + 1;
-  // Read only ID column (E) — avoids scanning A:Y for single-row edits.
-  const ids = sheet.getRange(CONFIG.TARGET_DATA_START_ROW, CONFIG.TARGET_COLS.ID_BOKT + 1, numRows, 1).getValues();
+  const ids = sheet.getRange(CONFIG.TARGET_DATA_START_ROW, idCol, numRows, 1).getValues();
 
   for (let i = 0; i < ids.length; i++) {
     const id = normalizeId_(ids[i][0]);
@@ -165,6 +167,50 @@ function buildTargetIdMap_() {
   }
 
   return { map, duplicates, lastDataRow };
+}
+
+/**
+ * Allocate destination row numbers for N new records.
+ * Reuses template rows whose ID BOKT (col E) is blank before appending
+ * past the sheet's last row — avoids writing at I1001+ where dropdown
+ * validation on NCC commonly rejects free-text tool names.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {number} count
+ * @returns {number[]} absolute 1-indexed row numbers (length = count)
+ */
+function allocateTargetInsertRows_(sheet, count) {
+  if (count <= 0) return [];
+
+  const idCol = CONFIG.TARGET_COLS.ID_BOKT + 1;
+  const start = CONFIG.TARGET_DATA_START_ROW;
+  // Scan through the physical last row so blank ID slots inside the
+  // pre-seeded template (often ~1000 rows) can be reused.
+  const scanEnd = Math.max(sheet.getLastRow(), start - 1);
+  const allocated = [];
+
+  if (scanEnd >= start) {
+    const numRows = scanEnd - start + 1;
+    const ids = sheet.getRange(start, idCol, numRows, 1).getValues();
+    for (let i = 0; i < ids.length && allocated.length < count; i++) {
+      if (isBlank_(ids[i][0])) {
+        allocated.push(start + i);
+      }
+    }
+  }
+
+  let nextAppend = Math.max(sheet.getLastRow() + 1, start);
+  // Ensure append rows do not collide with already allocated template rows.
+  if (allocated.length) {
+    nextAppend = Math.max(nextAppend, allocated[allocated.length - 1] + 1);
+  }
+  while (allocated.length < count) {
+    // Prefer the lowest unused append index.
+    while (allocated.indexOf(nextAppend) !== -1) nextAppend++;
+    allocated.push(nextAppend);
+    nextAppend++;
+  }
+
+  return allocated;
 }
 
 /**
@@ -192,33 +238,43 @@ function readTargetRows_(rowNumbers) {
 }
 
 /**
- * Batch-insert new target rows after the current last data row.
+ * Insert records into sheet 2026.
+ * Reuses blank ID BOKT template rows when available; clears data validation
+ * on each write range so NCC dropdowns cannot block automation.
  * @param {*[][]} rowsMatrix each row length = TARGET_NUM_COLS
- * @returns {number} first inserted absolute row number (or -1 if empty)
+ * @returns {number[]} absolute row numbers written (same order as rowsMatrix)
  */
 function insertTargetRecords_(rowsMatrix) {
-  if (!rowsMatrix || rowsMatrix.length === 0) return -1;
+  if (!rowsMatrix || rowsMatrix.length === 0) return [];
 
   const sheet = getSheetByName_(CONFIG.TARGET_SHEET_NAME, true);
-  const lastDataRow = findLastDataRow_(sheet, CONFIG.TARGET_DATA_START_ROW, CONFIG.TARGET_NUM_COLS);
-  const startRow = Math.max(lastDataRow + 1, CONFIG.TARGET_DATA_START_ROW);
-
-  sheet.getRange(startRow, 1, rowsMatrix.length, CONFIG.TARGET_NUM_COLS).setValues(rowsMatrix);
-  return startRow;
+  const targetRows = allocateTargetInsertRows_(sheet, rowsMatrix.length);
+  const payload = targetRows.map((rowNumber, idx) => ({
+    rowNumber,
+    values: rowsMatrix[idx],
+  }));
+  writeTargetRowBlocks_(sheet, payload);
+  return targetRows;
 }
 
 /**
  * Write updated full rows (A:Y) back to their absolute row indexes.
- * Uses contiguous blocks where possible.
+ * Uses contiguous blocks where possible; clears validations before write.
  * @param {{rowNumber: number, values: *[]}[]} records
  */
 function updateTargetRecords_(records) {
   if (!records || records.length === 0) return;
-
   const sheet = getSheetByName_(CONFIG.TARGET_SHEET_NAME, true);
-  const sorted = records.slice().sort((a, b) => a.rowNumber - b.rowNumber);
+  writeTargetRowBlocks_(sheet, records);
+}
 
-  // Group contiguous rows that can be written with one setValues().
+/**
+ * Group records by contiguous row numbers and write each block via writeMatrix_.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {{rowNumber: number, values: *[]}[]} records
+ */
+function writeTargetRowBlocks_(sheet, records) {
+  const sorted = records.slice().sort((a, b) => a.rowNumber - b.rowNumber);
   let blockStartIdx = 0;
   while (blockStartIdx < sorted.length) {
     let blockEndIdx = blockStartIdx;
@@ -230,9 +286,7 @@ function updateTargetRecords_(records) {
     }
     const block = sorted.slice(blockStartIdx, blockEndIdx + 1);
     const matrix = block.map((r) => r.values);
-    sheet
-      .getRange(block[0].rowNumber, 1, matrix.length, CONFIG.TARGET_NUM_COLS)
-      .setValues(matrix);
+    writeMatrix_(sheet, block[0].rowNumber, 1, matrix);
     blockStartIdx = blockEndIdx + 1;
   }
 }

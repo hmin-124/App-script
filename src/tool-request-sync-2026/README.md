@@ -33,6 +33,10 @@ Sheet 2026  (INSERT nếu ID BOKT mới / UPDATE nếu đã có)
 - Installable trigger chạy với quyền user đã authorize; mỗi edit hợp lệ sẽ sync — tránh paste hàng nghìn dòng một lúc (quota Apps Script ~6 phút/execution).
 - `EXCHANGE_RATE` để `null` thì cột Tỷ giá / Thành tiền (USD) trống cho đến khi Admin cấu hình.
 
+**Bugfix (data validation / template rows)**
+- Sheet `2026` thường có ~1000 dòng template (Tháng + checkbox) và dropdown NCC ở cột I. Script tái sử dụng dòng có ID BOKT trống và `clearDataValidations()` trên range trước khi `setValues`, tránh lỗi `I1001 violates the data validation rules`.
+- `SYNC_LOG` cũng được gỡ validation khi ensure (phòng trường hợp sheet được tạo bằng cách duplicate từ `2026`).
+
 ---
 
 ## 2. Cấu trúc file

@@ -208,9 +208,9 @@ function syncSourceRows_(rowNumbers, options) {
       });
 
       if (insertMatrix.length) {
-        const firstRow = insertTargetRecords_(insertMatrix);
+        const assignedRows = insertTargetRecords_(insertMatrix);
         insertMetas.forEach((mapped, idx) => {
-          const targetRow = firstRow + idx;
+          const targetRow = assignedRows[idx];
           idMap.set(mapped.idBokt, targetRow);
           summary.inserted++;
           logs.push(

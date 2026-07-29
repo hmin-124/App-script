@@ -159,6 +159,61 @@ function findLastDataRow_(sheet, startRow, lastCol) {
 }
 
 /**
+ * Last row that has a non-blank value in a single column (1-indexed).
+ * Ignores template noise in other columns (checkbox false, prefilled month, …).
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {number} startRow
+ * @param {number} column1Indexed
+ * @returns {number}
+ */
+function findLastRowByColumn_(sheet, startRow, column1Indexed) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < startRow) return startRow - 1;
+  const numRows = lastRow - startRow + 1;
+  const values = sheet.getRange(startRow, column1Indexed, numRows, 1).getValues();
+  for (let i = values.length - 1; i >= 0; i--) {
+    if (!isBlank_(values[i][0])) return startRow + i;
+  }
+  return startRow - 1;
+}
+
+/**
+ * Ensure the sheet has at least `requiredLastRow` rows (insert if needed).
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {number} requiredLastRow
+ */
+function ensureSheetRows_(sheet, requiredLastRow) {
+  const maxRows = sheet.getMaxRows();
+  if (requiredLastRow > maxRows) {
+    sheet.insertRowsAfter(maxRows, requiredLastRow - maxRows);
+  }
+}
+
+/**
+ * Write a 2D matrix with one setValues(), clearing data validations on the
+ * destination range first so dropdown / checkbox rules cannot block automation
+ * (common on sheet 2026 column I – NCC, and on copied SYNC_LOG sheets).
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {number} startRow
+ * @param {number} startCol
+ * @param {*[][]} matrix
+ */
+function writeMatrix_(sheet, startRow, startCol, matrix) {
+  if (!matrix || matrix.length === 0) return;
+  const numRows = matrix.length;
+  const numCols = matrix[0].length;
+  ensureSheetRows_(sheet, startRow + numRows - 1);
+  const range = sheet.getRange(startRow, startCol, numRows, numCols);
+  try {
+    range.clearDataValidations();
+  } catch (err) {
+    // Non-fatal — still attempt the write.
+    console.log(`clearDataValidations failed at R${startRow}C${startCol}: ${err}`);
+  }
+  range.setValues(matrix);
+}
+
+/**
  * Month number (1–12) from a Date, or null.
  * @param {Date|*} dateValue
  * @returns {number|null}

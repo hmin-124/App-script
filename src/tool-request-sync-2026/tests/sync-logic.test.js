@@ -34,11 +34,16 @@ function loadProject() {
   };
   vm.createContext(context);
 
+  // Minimal Sheet stub so allocateTargetInsertRows_ can be unit-tested.
+  context._sheetState = null;
+  context.SpreadsheetApp = {};
+
   for (const file of [
     'Config.gs',
     'Utils.gs',
     'ValidationService.gs',
     'MappingService.gs',
+    'DataAccess.gs',
   ]) {
     const code = fs.readFileSync(path.join(ROOT, file), 'utf8');
     vm.runInContext(code, context, { filename: file });
@@ -56,9 +61,37 @@ function loadProject() {
       resolveCostAndCurrency_,
       mapSourceToTarget_,
       applyUpdatePatch_,
+      allocateTargetInsertRows_,
+      isBlank_,
     })`,
     context
   );
+}
+
+/**
+ * Build a minimal Sheet mock: column E (index 5) holds ID BOKT values.
+ * @param {*[]} idColumnValues values for rows starting at TARGET_DATA_START_ROW
+ */
+function makeSheetMock(idColumnValues) {
+  const start = 2; // CONFIG.TARGET_DATA_START_ROW
+  const lastRow = idColumnValues.length ? start + idColumnValues.length - 1 : 0;
+  return {
+    getLastRow: () => lastRow,
+    getMaxRows: () => Math.max(1000, lastRow),
+    getRange: (row, col, numRows) => ({
+      getValues: () => {
+        // Only column-E reads are used by allocateTargetInsertRows_.
+        if (col !== 5) return Array.from({ length: numRows }, () => ['']);
+        const out = [];
+        for (let i = 0; i < numRows; i++) {
+          const abs = row + i;
+          const idx = abs - start;
+          out.push([idx >= 0 && idx < idColumnValues.length ? idColumnValues[idx] : '']);
+        }
+        return out;
+      },
+    }),
+  };
 }
 
 function assert(condition, message) {
@@ -219,6 +252,24 @@ function run() {
   const mapped2 = mapSourceToTarget_(record, validated2, new Map());
   const merged2 = applyUpdatePatch_(existing, mapped2.updatePatch);
   assertEqual(merged2[CONFIG.TARGET_COLS.STATUS], 'Done', 'status updates from source');
+
+  // --- allocateTargetInsertRows_: reuse blank ID slots in template ---
+  const {
+    allocateTargetInsertRows_,
+  } = ctx;
+  // Template: row2 has ID, row3 blank, row4 blank, … simulate 5 template rows
+  const sheet = makeSheetMock(['111', '', '', '222', '']);
+  const rows = allocateTargetInsertRows_(sheet, 3);
+  assertEqual(rows.length, 3, 'allocate 3 rows');
+  assertEqual(rows[0], 3, 'first blank slot');
+  assertEqual(rows[1], 4, 'second blank slot');
+  assertEqual(rows[2], 6, 'third blank slot');
+
+  // All IDs filled → append after last row
+  const full = makeSheetMock(['1', '2', '3']);
+  const appended = allocateTargetInsertRows_(full, 2);
+  assertEqual(appended[0], 5, 'append row 5');
+  assertEqual(appended[1], 6, 'append row 6');
 
   console.log('All sync-logic tests passed.');
 }
