@@ -62,6 +62,10 @@ class RequestService {
     // Step 4: copy the closest existing template sheet.
     const newSheet = this.templateService.createSheetFromTemplate(targetSheetName, targetMonth, targetYear);
 
+    // Step 4b: ensure columns needed by the "đề xuất mua Tool mới" message
+    // exist (older templates may only have the original 21 columns).
+    this.ensureMessageColumns_(newSheet);
+
     // Step 5: map tracker rows -> request rows.
     const rowValues = approvedTools.map((tool, index) => this._buildRequestRow(tool, index + 1));
 
@@ -115,11 +119,43 @@ class RequestService {
       case 'CONSTANT':
         return columnRule.value;
 
+      case 'DEPLOY_WINDOW': {
+        const start = new Date();
+        const end = new Date(start.getFullYear(), start.getMonth() + 1, start.getDate());
+        return `Từ ${Utils.formatDateDDMMYYYY(start)} - ${Utils.formatDateDDMMYYYY(end)}`;
+      }
+
       case 'MANUAL':
         return '';
 
       default:
         throw new Error(`RequestService._resolveColumnValue: unknown mapping strategy "${columnRule.strategy}".`);
     }
+  }
+
+  /**
+   * Appends any missing Config.REQUEST_HEADERS to the header row (at the
+   * far right) so SheetGenerator's assertHeadersExist passes when the
+   * copied template is an older T{n}.{yyyy} sheet without the new-tool
+   * message columns. Existing headers/data are never rewritten.
+   * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+   * @private
+   */
+  ensureMessageColumns_(sheet) {
+    const coreHeaders = [
+      Config.REQUEST_HEADERS.STT,
+      Config.REQUEST_HEADERS.TEN_TOOL,
+      Config.REQUEST_HEADERS.GIA_USD,
+    ];
+    const headerRowIndex = Utils.detectHeaderRow(sheet, coreHeaders);
+    const headerMap = Utils.getHeaderMap(sheet, headerRowIndex);
+    const missing = Object.values(Config.REQUEST_HEADERS).filter((header) => !headerMap[header]);
+    if (missing.length === 0) return;
+
+    const startCol = sheet.getLastColumn() + 1;
+    sheet.getRange(headerRowIndex, startCol, 1, missing.length).setValues([missing]);
+    AppLogger.info(
+      `RequestService.ensureMessageColumns_: added ${missing.length} header(s) on "${sheet.getName()}": ${missing.join(', ')}.`
+    );
   }
 }

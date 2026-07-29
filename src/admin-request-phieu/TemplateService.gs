@@ -39,47 +39,54 @@ class TemplateService {
   }
 
   /**
-   * Finds the most recent existing request sheet ("T{n}.{yyyy}") that is
-   * chronologically BEFORE the given target month/year - i.e. "tháng gần
-   * nhất" relative to the month being generated. This is dynamic on
-   * purpose: if an admin ever skips a month, the tool still finds the
-   * closest real template instead of assuming a fixed "target - 1" name.
+   * Finds the most recent existing request sheet that is chronologically
+   * BEFORE the target month/year. Accepts "Request Tool mới T{n}.{yyyy}",
+   * legacy "T{n}.{yyyy}", and common prefixed variants ("Copy of …",
+   * "Dev SEO …") via Utils.matchRequestSheetName().
    * @param {number} targetMonth - 1-12.
    * @param {number} targetYear
    * @returns {GoogleAppsScript.Spreadsheet.Sheet}
    * @throws {UserFacingError} When no eligible template sheet exists.
    */
   findLatestTemplateSheet(targetMonth, targetYear) {
-    const namePattern = new RegExp(`^${Config.REQUEST_SHEET_PREFIX}(\\d{1,2})\\.(\\d{4})$`, 'i');
     const targetOrdinal = targetYear * 12 + targetMonth;
+    const targetName = `${Config.REQUEST_SHEET_TITLE_PREFIX}${Config.REQUEST_SHEET_PREFIX}${targetMonth}.${targetYear}`;
+    const legacyTargetName = `${Config.REQUEST_SHEET_PREFIX}${targetMonth}.${targetYear}`;
 
-    let bestSheet = null;
-    let bestOrdinal = -Infinity;
+    let bestBeforeSheet = null;
+    let bestBeforeOrdinal = -Infinity;
+    let sameMonthAlternateSheet = null;
 
     this.spreadsheet.getSheets().forEach((sheet) => {
-      const match = sheet.getName().match(namePattern);
-      if (!match) return;
+      const name = sheet.getName();
+      const parsed = Utils.matchRequestSheetName(name);
+      if (!parsed) return;
 
-      const month = Number(match[1]);
-      const year = Number(match[2]);
-      const ordinal = year * 12 + month;
+      const ordinal = parsed.year * 12 + parsed.month;
+      if (ordinal < targetOrdinal && ordinal > bestBeforeOrdinal) {
+        bestBeforeOrdinal = ordinal;
+        bestBeforeSheet = sheet;
+        return;
+      }
 
-      if (ordinal < targetOrdinal && ordinal > bestOrdinal) {
-        bestOrdinal = ordinal;
-        bestSheet = sheet;
+      if (ordinal === targetOrdinal && name !== targetName && name !== legacyTargetName) {
+        sameMonthAlternateSheet = sheet;
       }
     });
 
-    if (!bestSheet) {
-      throw new UserFacingError('Không tìm thấy Template.');
+    const templateSheet = bestBeforeSheet || sameMonthAlternateSheet;
+    if (!templateSheet) {
+      throw new UserFacingError(
+        `Không tìm thấy Template (cần sheet dạng "Request Tool mới T{n}.{yyyy}" hoặc "T{n}.{yyyy}" trước tháng đích).`
+      );
     }
-    return bestSheet;
+    return templateSheet;
   }
 
   /**
    * Creates the new month's sheet by copying the closest existing template
    * sheet, renaming it, and placing it right after the template.
-   * @param {string} newSheetName - e.g. "T9.2026".
+   * @param {string} newSheetName - e.g. "Request Tool mới T9.2026".
    * @param {number} targetMonth
    * @param {number} targetYear
    * @returns {GoogleAppsScript.Spreadsheet.Sheet} The newly created sheet.
