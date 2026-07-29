@@ -17,19 +17,34 @@
 function onGenerateRequestSheetClick() {
   try {
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    if (!spreadsheet) {
+      throw new UserFacingError(
+        'Không lấy được spreadsheet đang mở. Hãy mở file Google Sheet rồi chạy từ menu 🛠️ Admin Tools (không Run từ editor độc lập).'
+      );
+    }
+
     const requestService = new RequestService(spreadsheet);
     const result = requestService.generateRequestSheet();
 
-    if (result === null) return; // Admin cancelled the overwrite confirmation.
+    if (result === null) {
+      Utils.showAlert('Đã hủy', 'Không tạo/ghi đè sheet Request (bạn đã chọn Không ghi đè).');
+      return;
+    }
 
     Utils.showAlert('Generate Request thành công.', `Tổng số Tool: ${result.toolCount}\n\nSheet: ${result.sheetName}`);
   } catch (error) {
     AppLogger.error(`onGenerateRequestSheetClick: ${error.message}`);
 
-    if (error instanceof UserFacingError) {
-      Utils.showAlert('Thông báo', error.message);
-    } else {
-      Utils.showAlert('Đã xảy ra lỗi', error.message);
+    try {
+      if (error instanceof UserFacingError) {
+        Utils.showAlert('Thông báo', error.message);
+      } else {
+        Utils.showAlert('Đã xảy ra lỗi', error.message);
+      }
+    } catch (uiError) {
+      // UI unavailable (typical when pressing Run inside the Apps Script
+      // editor) — error is already in Execution log via AppLogger / showAlert.
+      AppLogger.error(`onGenerateRequestSheetClick UI notify failed: ${uiError.message}`);
     }
   }
 }

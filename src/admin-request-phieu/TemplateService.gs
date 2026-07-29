@@ -76,10 +76,20 @@ class TemplateService {
 
     const templateSheet = bestBeforeSheet || sameMonthAlternateSheet;
     if (!templateSheet) {
+      const available = this.spreadsheet
+        .getSheets()
+        .map((sheet) => sheet.getName())
+        .filter((name) => Utils.matchRequestSheetName(name));
+      const availableText = available.length > 0 ? available.join(', ') : '(không có sheet Request nào)';
       throw new UserFacingError(
-        `Không tìm thấy Template (cần sheet dạng "Request Tool mới T{n}.{yyyy}" hoặc "T{n}.{yyyy}" trước tháng đích).`
+        `Không tìm thấy Template cho tháng ${Config.REQUEST_SHEET_PREFIX}${targetMonth}.${targetYear}.\n\n` +
+          `Cần 1 sheet Request tháng trước (vd. "Dev SEO T7.2026", "T7.2026", "Request Tool mới T7.2026").\n\n` +
+          `Sheet Request hiện có: ${availableText}`
       );
     }
+    AppLogger.info(
+      `TemplateService: using "${templateSheet.getName()}" as template for ${targetName}.`
+    );
     return templateSheet;
   }
 

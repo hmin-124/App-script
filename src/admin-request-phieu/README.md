@@ -287,9 +287,14 @@ onCreateLeadMessageClick() / onCreateHeadMessageClick()  [Code.gs]
    - Xóa file trùng có đuôi kép (vd. `SheetGenerator.gs.gs`) — giữ lại
      đúng 1 file `SheetGenerator.gs`.
    - Lưu → chọn hàm `createAdminMenu` → **Run** → Allow → reload Sheet.
-6. Thêm tool trên `QUẢN LÝ TOOLS` → tick `Request Gia hạn T{n}`.
-7. **Generate Request Sheet** → mở `Request Tool mới T{n}.{yyyy}`.
-8. Điền STK / ID BOKT / Note nếu cần → chạy **GỬI TIN NHẮN ĐỀ XUẤT MUA TOOL MỚI**
+6. **Chạy tool từ menu trên Sheet** (`🛠️ Admin Tools → …`), **không** bấm
+   Run `onGenerateRequestSheetClick` trong Apps Script editor — editor thường
+   không mở được hộp thoại confirm/alert nên Generate dừng im sau khi đọc tool.
+7. Thêm tool trên `QUẢN LÝ TOOLS` → tick `Request Gia hạn T{n}`.
+8. **Generate Request Sheet** → mở `Request Tool mới T{n}.{yyyy}`
+   (log phải hiện đúng tên này; nếu còn thấy `"T8.2026"` là đang dùng code cũ —
+   copy lại toàn bộ file từ `src/admin-request-phieu`).
+9. Điền STK / ID BOKT / Note nếu cần → chạy **GỬI TIN NHẮN ĐỀ XUẤT MUA TOOL MỚI**
    → Copy tin nhắn.
 
 ## 8. Hiệu năng & Logging

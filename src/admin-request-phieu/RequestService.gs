@@ -48,26 +48,41 @@ class RequestService {
     if (approvedTools.length === 0) {
       throw new UserFacingError('Không có Tool nào được chọn để tạo Request.');
     }
+    AppLogger.info(`RequestService: step 2 OK — ${approvedTools.length} tool(s) approved.`);
 
-    // Step 3: confirm before overwriting an existing sheet.
-    if (this.templateService.sheetExists(targetSheetName)) {
-      const confirmed = Utils.showConfirm('Sheet đã tồn tại.', 'Bạn có muốn ghi đè không?');
+    // Step 3: confirm before overwriting an existing sheet (canonical name
+    // or legacy "T{n}.{yyyy}" left over from older deploys).
+    const legacySheetName = `${Config.REQUEST_SHEET_PREFIX}${targetMonth}.${targetYear}`;
+    const existingCanonical = this.templateService.sheetExists(targetSheetName);
+    const existingLegacy = targetSheetName !== legacySheetName && this.templateService.sheetExists(legacySheetName);
+    if (existingCanonical || existingLegacy) {
+      const existingLabel = existingCanonical ? targetSheetName : legacySheetName;
+      const confirmed = Utils.showConfirm(
+        'Sheet đã tồn tại.',
+        `Sheet "${existingLabel}" đã có. Bạn có muốn ghi đè để tạo "${targetSheetName}" không?`
+      );
       if (!confirmed) {
         AppLogger.info('RequestService: cancelled by admin (sheet already exists, overwrite declined).');
         return null;
       }
-      this.templateService.deleteSheetIfExists(targetSheetName);
+      if (existingCanonical) this.templateService.deleteSheetIfExists(targetSheetName);
+      if (existingLegacy) this.templateService.deleteSheetIfExists(legacySheetName);
+      AppLogger.info(`RequestService: step 3 OK — removed existing sheet(s) before recreate.`);
     }
 
     // Step 4: copy the closest existing template sheet.
+    AppLogger.info(`RequestService: step 4 — copying template for ${targetMonth}.${targetYear}...`);
     const newSheet = this.templateService.createSheetFromTemplate(targetSheetName, targetMonth, targetYear);
+    AppLogger.info(`RequestService: step 4 OK — created "${newSheet.getName()}".`);
 
     // Step 4b: ensure columns needed by the "đề xuất mua Tool mới" message
     // exist (older templates may only have the original 21 columns).
     this.ensureMessageColumns_(newSheet);
+    AppLogger.info('RequestService: step 4b OK — message columns ensured.');
 
     // Step 5: map tracker rows -> request rows.
     const rowValues = approvedTools.map((tool, index) => this._buildRequestRow(tool, index + 1));
+    AppLogger.info(`RequestService: step 5 OK — mapped ${rowValues.length} row(s).`);
 
     // Step 6: write everything in a single batched call.
     const sheetGenerator = new SheetGenerator(newSheet);

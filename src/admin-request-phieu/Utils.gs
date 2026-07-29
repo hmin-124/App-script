@@ -27,9 +27,11 @@ class UserFacingError extends Error {
 }
 
 /**
- * Minimal leveled logger toggled by Config.ENABLE_LOGGING. Writes to both
- * the Apps Script Logger (visible in the Executions panel) and console
- * (visible in Stackdriver/Cloud Logging).
+ * Minimal leveled logger toggled by Config.ENABLE_LOGGING.
+ *
+ * Writes to Logger ONLY. The Apps Script Execution log surfaces BOTH
+ * `console.*` and `Logger.log`, so writing to both made every line appear
+ * twice (the bug seen when running Generate Request Sheet).
  */
 class AppLogger {
   /** @param {string} message */
@@ -55,16 +57,7 @@ class AppLogger {
    */
   static _write(level, message) {
     if (!Config.ENABLE_LOGGING) return;
-
-    const line = `[${level}] ${message}`;
-    if (level === Config.LOG_LEVEL.ERROR) {
-      console.error(line);
-    } else if (level === Config.LOG_LEVEL.WARNING) {
-      console.warn(line);
-    } else {
-      console.log(line);
-    }
-    Logger.log(line);
+    Logger.log(`[${level}] ${message}`);
   }
 }
 
@@ -458,7 +451,12 @@ class Utils {
       const ui = SpreadsheetApp.getUi();
       ui.alert(title, message, ui.ButtonSet.OK);
     } catch (error) {
-      AppLogger.warning(`Utils.showAlert: ${error.message}`);
+      // Surface in Execution log — do NOT swallow silently (editor runs often
+      // cannot open UI dialogs; Admin still needs to see the message).
+      AppLogger.error(`Utils.showAlert failed (${title}): ${message} | UI error: ${error.message}`);
+      throw new UserFacingError(
+        `${title}\n\n${message}\n\n(Không mở được hộp thoại — hãy chạy từ menu 🛠️ Admin Tools trên Google Sheet, không bấm Run trong Apps Script editor.)`
+      );
     }
   }
 
@@ -474,8 +472,12 @@ class Utils {
       const response = ui.alert(title, message, ui.ButtonSet.YES_NO);
       return response === ui.Button.YES;
     } catch (error) {
-      AppLogger.warning(`Utils.showConfirm: ${error.message}`);
-      return false;
+      // Previously returned `false`, which looked like "user cancelled" and
+      // stopped Generate with no explanation after reading approved tools.
+      AppLogger.error(`Utils.showConfirm failed (${title}): ${error.message}`);
+      throw new UserFacingError(
+        `${title}\n\n${message}\n\n(Không mở được hộp thoại xác nhận — hãy chạy từ menu 🛠️ Admin Tools trên Google Sheet, không bấm Run trong Apps Script editor.)`
+      );
     }
   }
 
