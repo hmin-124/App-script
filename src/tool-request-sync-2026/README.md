@@ -34,9 +34,10 @@ Sheet 2026  (INSERT nếu ID BOKT mới / UPDATE nếu đã có)
 - `EXCHANGE_RATE` để `null` thì cột Tỷ giá / Thành tiền (USD) trống cho đến khi Admin cấu hình.
 
 **Bảo vệ cột manual / công thức**
-- Script chỉ ghi sparse theo cột sync (D,E,J,K,L,M,U,V,Y + A/F/G/H lúc INSERT).
-- Không ghi B/C/I/N/O/P/Q/R/S/T/W/X → giữ checkbox, dropdown NCC, công thức Thành tiền và format gốc.
-- INSERT tái sử dụng dòng có ID BOKT trống trong template ~1000 dòng.
+- Script chỉ ghi sparse theo cột sync (D,E,G,K,L,M,N,V,W,Z + A/H/I lúc INSERT).
+- Không ghi B/C/F/J/O/P/Q/R/S/T/U/X/Y → giữ checkbox, dropdown NCC, Ngày tạo phiếu, công thức Thành tiền.
+- G Tên tool = parse từ Nội dung phiếu (`tool <Name> T…/…`).
+- INSERT tái sử dụng dòng có ID BOKT trống trong template.
 
 ---
 
@@ -44,18 +45,42 @@ Sheet 2026  (INSERT nếu ID BOKT mới / UPDATE nếu đã có)
 
 ```text
 src/tool-request-sync-2026/
-  Config.gs              # CONFIG (sheet names, columns, defaults, FX)
-  Code.gs                # onOpen, handleToolRequestEdit, trigger setup
-  Utils.gs               # normalize / parse / notify / sheet helpers
-  DataAccess.gs          # read/write batch, ID map, header assert
-  ValidationService.gs   # required fields
-  MappingService.gs      # Cost/DVT/FX + insert/update patch
-  SyncService.gs         # orchestration + menu sync actions
-  LoggingService.gs      # SYNC_LOG
+  Config.gs                 # CONFIG (sync + ADMIN_MENU + MESSAGE)
+  Code.gs                   # onOpen menus, handleToolRequestEdit, triggers
+  Utils.gs / DataAccess.gs / ValidationService.gs / MappingService.gs
+  SyncService.gs / LoggingService.gs
+  AdminDataService.gs       # đọc dòng tick cột B trên sheet 2026
+  ContentParser.gs          # parse Nội dung phiếu (deploy/STK/feature/T-period)
+  AdminMessageService.gs    # 4 loại tin nhắn Lead/Head
+  MessageDialog.html        # preview + copy
   appsscript.json
   README.md
   tests/sync-logic.test.js
+  tests/admin-message.test.js
 ```
+
+## 2b. Admin Tool — tin nhắn trình duyệt (sheet 2026)
+
+Menu **📋 ADMIN TOOL** (sau khi reload sheet / chạy `onOpen`):
+
+1. Tin nhắn Lead — gia hạn/nâng cấp  
+2. Tin nhắn Head — gia hạn/nâng cấp  
+3. Tin nhắn Lead — mua tool mới  
+4. Tin nhắn Head — mua tool mới  
+
+**Cách dùng**
+1. Trên sheet `2026`, tick cột **B – Group nội bộ duyệt** các dòng cần đưa vào tin nhắn.
+2. Chọn đúng menu theo loại (gia hạn/nâng cấp hoặc mua mới).
+3. Dialog hiện tin nhắn → **Copy** → dán chat.
+
+**Rule lọc**
+- Gia hạn/nâng cấp: chỉ lấy dòng tick có `Loại thanh toán` ∈ {Gia hạn, Nâng cấp}.
+- Mua mới: chỉ lấy dòng tick có `Loại thanh toán` = Mua mới.
+- Lead gia hạn: group `📌 Loại: {Loại gia hạn} - Gia hạn` và `📌 Loại: Nâng cấp`.
+- Head gia hạn: list phẳng `ID phiếu - Tên tool - $cost` + dòng `Link BOKT:` để Admin dán tay.
+- Mua mới: parse Thời gian triển khai / STK / NH / CHỦ TK / Tính năng từ cột **K Nội dung phiếu**.
+
+Chỉnh mention Lead/Head / team label tại `CONFIG.MESSAGE` trong `Config.gs`.
 
 ---
 
@@ -193,9 +218,10 @@ Nếu tab đích được đổi tên thành đúng `QUẢN LÝ TOOLS 2026`, ch�
 - [ ] Thiếu cả USD & VNĐ → SKIP + log `Thiếu thông tin chi phí`
 - [ ] Có cả USD & VNĐ → ưu tiên USD + warning trong log
 - [ ] VNĐ only → DVT=`PNT`, Tỷ giá=`1`, Thành tiền=Cost
-- [ ] Tỷ giá / Thành tiền không bị script ghi (công thức O vẫn chạy sau khi điền N)
-- [ ] Cột manual (B,C,I,N,O,P,Q,R,S,T,W,X) không bị ghi đè khi INSERT/UPDATE
-- [ ] Dropdown NCC + checkbox duyệt giữ nguyên định dạng
+- [ ] Tỷ giá / Thành tiền không bị script ghi (công thức P vẫn chạy sau khi điền O)
+- [ ] Cột manual (B,C,F,J,O,P,Q,R,S,T,U,X,Y) không bị ghi đè khi INSERT/UPDATE
+- [ ] G Tên tool parse đúng từ Nội dung phiếu (`tool Cloudflare T8/2026` → Cloudflare)
+- [ ] Dropdown NCC + checkbox duyệt + F Ngày tạo phiếu giữ nguyên định dạng
 - [ ] `SYNC_LOG` ghi INSERT/UPDATE/SKIP/ERROR/DUPLICATE theo batch
 - [ ] Hai user sync cùng lúc: một bên nhận lock timeout an toàn
 - [ ] **Kiểm tra dữ liệu trùng** phát hiện ID lặp trên `2026`

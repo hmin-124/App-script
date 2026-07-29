@@ -65,12 +65,11 @@ function extractToolNameFromContent_(content, fallbackName) {
   const firstLine = text.split(/\r?\n/)[0];
 
   const patterns = [
-    // "... tool Cloudflare T8/2026"
-    /\btools?\s*[:\-]?\s*(.+?)\s+T\d{1,2}\/\d{4}\b/i,
-    // "... gia hạn tool Cloudflare" (no period code)
+    // "... tool Cloudflare T8/2026" (period code required — strongest signal)
+    /\btools?\s+(.+?)\s+T\d{1,2}\/\d{4}\b/i,
+    // "... gia hạn tool Cloudflare" / "Request ... tool Cloudflare"
     /\bgia\s*hạn\s+tools?\s*[:\-]?\s*(.+?)(?:\s*[-–—]|\s*$)/i,
-    // generic "... tool Cloudflare" until end / dash / period code
-    /\btools?\s*[:\-]?\s*(.+?)(?:\s+T\d{1,2}\/\d{4}\b|\s*[-–—]|$)/i,
+    /\bRequest\b[^\n]*?\btools?\s*[:\-]?\s*(.+?)(?:\s+T\d{1,2}\/\d{4}\b|\s*[-–—]|\s*$)/i,
   ];
 
   for (let i = 0; i < patterns.length; i++) {

@@ -200,6 +200,47 @@ const CONFIG = {
     },
   },
 
+  /**
+   * Admin Tools — tin nhắn trình duyệt trên sheet 2026.
+   * Chỉ lấy các dòng có cột B (Group nội bộ duyệt) = TRUE.
+   */
+  ADMIN_MENU: {
+    NAME: '📋 ADMIN TOOL',
+    ITEMS: {
+      LEAD_RENEW: '1. Tin nhắn Lead — gia hạn/nâng cấp',
+      HEAD_RENEW: '2. Tin nhắn Head — gia hạn/nâng cấp',
+      LEAD_NEW: '3. Tin nhắn Lead — mua tool mới',
+      HEAD_NEW: '4. Tin nhắn Head — mua tool mới',
+    },
+  },
+
+  MESSAGE: {
+    /** Map Team QL → label trong tiêu đề [M5 - DEV SEO]. */
+    TEAM_LABEL_BY_TEAM: {
+      'Dev M5': 'M5 - DEV SEO',
+      'Dev M6': 'M6 - DEV SEO',
+      'DEV SEO': 'M5 - DEV SEO',
+    },
+    DEFAULT_TEAM_LABEL: 'M5 - DEV SEO',
+
+    PAYMENT_CATEGORY: {
+      GIA_HAN: 'Gia hạn',
+      NANG_CAP: 'Nâng cấp',
+      MUA_MOI: 'Mua mới',
+    },
+
+    /** Thứ tự nhóm trong tin Lead gia hạn/nâng cấp. */
+    RENEW_CATEGORY_ORDER: ['Gia hạn', 'Nâng cấp'],
+
+    LEAD_MENTION: 'L Tha.Lead Dev.M5 🤑⚛️',
+    HEAD_MENTION: 'P Alex.Head.M5🤑 ⚛️',
+    NEW_TOOL_LEAD_REVIEWERS: 'Tha/Bone',
+
+    BOKT_LINK_PLACEHOLDER: '',
+
+    DEFAULT_QTY: 1,
+  },
+
   /** Installable onEdit handler function name (must match global function). */
   TRIGGER_HANDLER_NAME: 'handleToolRequestEdit',
 

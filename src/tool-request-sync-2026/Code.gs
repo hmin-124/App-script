@@ -9,10 +9,11 @@
  */
 
 /**
- * Simple trigger — builds the custom menu when the spreadsheet opens.
+ * Simple trigger — builds the custom menus when the spreadsheet opens.
  */
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
+
   ui.createMenu(CONFIG.MENU.NAME)
     .addItem(CONFIG.MENU.ITEMS.SYNC_SELECTED, 'syncSelectedRows')
     .addItem(CONFIG.MENU.ITEMS.SYNC_ALL, 'syncAllToolRequests')
@@ -22,6 +23,15 @@ function onOpen() {
     .addSeparator()
     .addItem(CONFIG.MENU.ITEMS.INSTALL_TRIGGER, 'installSyncTrigger')
     .addItem(CONFIG.MENU.ITEMS.REMOVE_TRIGGERS, 'removeSyncTriggers')
+    .addToUi();
+
+  // Admin Tool: tin nhắn trình duyệt Lead/Head trên sheet 2026 (tick cột B).
+  ui.createMenu(CONFIG.ADMIN_MENU.NAME)
+    .addItem(CONFIG.ADMIN_MENU.ITEMS.LEAD_RENEW, 'buildLeadRenewMessage')
+    .addItem(CONFIG.ADMIN_MENU.ITEMS.HEAD_RENEW, 'buildHeadRenewMessage')
+    .addSeparator()
+    .addItem(CONFIG.ADMIN_MENU.ITEMS.LEAD_NEW, 'buildLeadNewToolMessage')
+    .addItem(CONFIG.ADMIN_MENU.ITEMS.HEAD_NEW, 'buildHeadNewToolMessage')
     .addToUi();
 }
 
