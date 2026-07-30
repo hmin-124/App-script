@@ -49,7 +49,15 @@ function syncSourceRows_(rowNumbers, options) {
       assertSheetHeaders_();
     }
 
-    const sourceRecords = readSourceRows_(rowNumbers);
+    const sourceCols = resolveSourceColIndexes_();
+    const neededWidth = Math.max(
+      CONFIG.SOURCE_LAST_COL_INDEX + 1,
+      sourceCols.ID_BOKT + 1,
+      sourceCols.PRICE_USD + 1,
+      sourceCols.RENEWAL_DATE + 1
+    );
+
+    const sourceRecords = readSourceRows_(rowNumbers, neededWidth);
     if (sourceRecords.length === 0) {
       toastUser_(showUi, 'Không đọc được dòng nguồn hợp lệ.', CONFIG.MENU.NAME, 3);
       return summary;
@@ -59,10 +67,11 @@ function syncSourceRows_(rowNumbers, options) {
 
     const inserts = []; // {mapped}
     const updates = []; // {targetRow, mapped}
+    const skipReasons = []; // human-readable lines for UI
 
     // First pass: validate + decide action (no writes yet).
     sourceRecords.forEach((record) => {
-      const validated = validateSourceRecord_(record);
+      const validated = validateSourceRecord_(record, sourceCols);
 
       if (validated.softSkip) {
         summary.skipped++;
@@ -71,9 +80,10 @@ function syncSourceRows_(rowNumbers, options) {
 
       if (!validated.ok) {
         summary.skipped++;
+        const reason = `Dòng ${record.rowNumber} (${validated.toolName || '—'}): ${validated.errors.join('; ')}`;
+        skipReasons.push(reason);
         // During installable onEdit, incomplete rows are expected while the user
-        // is still typing — skip silently (no popup, no log spam).
-        // Manual menu sync logs SKIP so the operator can see what's missing.
+        // is still typing — skip silently (no popup). Manual sync always logs.
         if (showUi) {
           logs.push(
             buildLogEntry_({
@@ -91,6 +101,9 @@ function syncSourceRows_(rowNumbers, options) {
 
       if (duplicates.has(validated.idBokt)) {
         summary.duplicates++;
+        skipReasons.push(
+          `Dòng ${record.rowNumber}: ID BOKT ${validated.idBokt} bị trùng nhiều dòng trên sheet ${CONFIG.TARGET_SHEET_NAME}`
+        );
         logs.push(
           buildLogEntry_({
             action: CONFIG.ACTIONS.DUPLICATE,
@@ -209,6 +222,26 @@ function syncSourceRows_(rowNumbers, options) {
       `Đồng bộ xong — INSERT: ${summary.inserted}, UPDATE: ${summary.updated}, ` +
       `SKIP: ${summary.skipped}, DUPLICATE: ${summary.duplicates}, ERROR: ${summary.errors}`;
     toastUser_(showUi, msg, CONFIG.MENU.NAME, 8);
+
+    // Manual sync: if nothing written, surface WHY (thường thiếu ID BOKT cột S).
+    if (
+      showUi &&
+      summary.inserted === 0 &&
+      summary.updated === 0 &&
+      skipReasons.length > 0
+    ) {
+      const preview = skipReasons.slice(0, 8).join('\n');
+      const more =
+        skipReasons.length > 8 ? `\n… và ${skipReasons.length - 8} dòng khác (xem SYNC_LOG).` : '';
+      notifyUser_(
+        true,
+        'Không ghi được sang sheet 2026',
+        `${preview}${more}\n\n` +
+          'Gợi ý: điền ID BOKT ở cột S trên Tool Request (bắt buộc để đồng bộ), ' +
+          'đảm bảo có Giá USD (H) hoặc Giá VNĐ (I), rồi chạy lại.'
+      );
+    }
+
     return summary;
   } catch (err) {
     const info = describeError_(err);

@@ -51,6 +51,8 @@ function loadProject() {
       normalizeId_,
       normalizeText_,
       parseNumber_,
+      extractIdFromContent_,
+      isBlankId_,
       validateSourceRecord_,
       resolveCostAndCurrency_,
       extractToolNameFromContent_,
@@ -113,6 +115,8 @@ function run() {
     normalizeId_,
     normalizeText_,
     parseNumber_,
+    extractIdFromContent_,
+    isBlankId_,
     validateSourceRecord_,
     resolveCostAndCurrency_,
     extractToolNameFromContent_,
@@ -127,6 +131,11 @@ function run() {
   assertEqual(normalizeId_('3513368.0'), '3513368', 'id trailing .0');
   assertEqual(normalizeId_('  99  '), '99', 'id trim');
   assertEqual(normalizeId_(''), '', 'id empty');
+  assertEqual(extractIdFromContent_('ID phiếu: 3513368\nfoo'), '3513368', 'extract id content');
+  assertEqual(extractIdFromContent_('no id here'), '', 'extract id miss');
+  assert(isBlankId_(false), 'checkbox false is blank id');
+  assert(isBlankId_(0), 'zero is blank id');
+  assert(!isBlankId_(3513368), 'real id ok');
 
   // --- normalizeText_ ---
   assertEqual(normalizeText_('  Adobe   Creative  '), 'Adobe Creative', 'text collapse');
@@ -156,7 +165,51 @@ function run() {
     }),
   });
   assert(!noCost.ok, 'no cost fails');
-  assert(noCost.errors.indexOf('Thiếu thông tin chi phí') >= 0, 'cost error message');
+  assert(noCost.errors.some((e) => e.indexOf('chi phí') >= 0), 'cost error message');
+
+  // Cost fallback from column K when H/I empty
+  const costFromK = validateSourceRecord_({
+    rowNumber: 3,
+    values: makeSourceValues({
+      1: 'Cloudflare',
+      4: 'Dev M5',
+      5: 'Gia hạn',
+      6: 'Mua theo tháng',
+      10: 55,
+      18: 3513368,
+    }),
+  });
+  assert(costFromK.ok, 'cost from K ok');
+  assertEqual(costFromK.priceUsd, 55, 'k fallback usd');
+
+  // ID fallback from content when S empty
+  const idFromContent = validateSourceRecord_({
+    rowNumber: 3,
+    values: makeSourceValues({
+      1: 'Cloudflare',
+      3: 'Request tool Cloudflare T8/2026\nID phiếu: 3513999',
+      4: 'Dev M5',
+      5: 'Gia hạn',
+      6: 'Mua theo tháng',
+      7: 10,
+    }),
+  });
+  assert(idFromContent.ok, 'id from content ok');
+  assertEqual(idFromContent.idBokt, '3513999', 'parsed id');
+
+  // Missing ID still fails when content has no id either
+  const noId = validateSourceRecord_({
+    rowNumber: 3,
+    values: makeSourceValues({
+      1: 'Cloudflare',
+      4: 'Dev M5',
+      5: 'Gia hạn',
+      6: 'Mua theo tháng',
+      7: 10,
+    }),
+  });
+  assert(!noId.ok, 'no id fails');
+  assert(noId.errors.some((e) => e.indexOf('ID BOKT') >= 0), 'id required msg');
 
   const okUsd = validateSourceRecord_({
     rowNumber: 3,

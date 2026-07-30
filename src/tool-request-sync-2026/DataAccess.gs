@@ -5,6 +5,52 @@
  */
 
 /**
+ * Resolve Tool Request column indexes from the live header row.
+ * Falls back to CONFIG.SOURCE_COLS when an alias is not found.
+ * @returns {Object}
+ */
+function resolveSourceColIndexes_() {
+  const sheet = getSheetByName_(CONFIG.SOURCE_SHEET_NAME, true);
+  const lastCol = Math.max(sheet.getLastColumn(), CONFIG.SOURCE_LAST_COL_INDEX + 1);
+  const headers = sheet.getRange(CONFIG.HEADER_ROW, 1, 1, lastCol).getValues()[0];
+  const map = Object.assign({}, CONFIG.SOURCE_COLS);
+
+  const findIdx = (aliases) => {
+    for (let i = 0; i < headers.length; i++) {
+      const h = normalizeHeaderKey_(headers[i]);
+      if (!h) continue;
+      for (let a = 0; a < aliases.length; a++) {
+        const alias = aliases[a];
+        if (h === alias || h.indexOf(alias) !== -1) return i;
+      }
+    }
+    return null;
+  };
+
+  const pairs = [
+    ['TOOL_NAME', ['tên tool', 'ten tool']],
+    ['DETAIL', ['chi tiết', 'chi tiet']],
+    ['TEAM', ['vị trí sử dụng', 'vi tri su dung']],
+    ['PAYMENT_TYPE', ['loại thanh toán', 'loai thanh toan']],
+    ['RENEWAL_TYPE', ['loại gia hạn', 'loai gia han']],
+    ['PRICE_USD', ['giá usd', 'gia usd']],
+    ['PRICE_VND', ['giá vnd', 'gia vnd', 'giá vnđ']],
+    ['COST_FIRST_MONTH', ['cost/first month', 'cost first month']],
+    ['PAYMENT_INFO', ['thông tin thanh toán', 'thong tin thanh toan']],
+    ['ID_BOKT', ['id bokt', 'id phiếu', 'id phieu']],
+    ['PAYMENT_STATUS', ['tình trạng thanh toán', 'tinh trang thanh toan']],
+    ['RENEWAL_DATE', ['ngày gia hạn', 'ngay gia han']],
+  ];
+
+  pairs.forEach(([key, aliases]) => {
+    const idx = findIdx(aliases);
+    if (idx !== null) map[key] = idx;
+  });
+
+  return map;
+}
+
+/**
  * Validate that critical headers still match CONFIG expectations.
  * @throws {Error} when a required header is missing / renamed
  */
@@ -71,9 +117,10 @@ function columnLetter_(col1Indexed) {
  * Read specific source rows (1-indexed row numbers) in one batch when contiguous,
  * otherwise group by contiguous blocks.
  * @param {number[]} rowNumbers
- * @returns {Object[]} records with {rowNumber, values[21]}
+ * @param {number=} numCols number of columns to read (defaults to A:U)
+ * @returns {Object[]} records with {rowNumber, values}
  */
-function readSourceRows_(rowNumbers) {
+function readSourceRows_(rowNumbers, numCols) {
   if (!rowNumbers || rowNumbers.length === 0) return [];
 
   const sheet = getSheetByName_(CONFIG.SOURCE_SHEET_NAME, true);
@@ -83,15 +130,14 @@ function readSourceRows_(rowNumbers) {
 
   if (uniqueSorted.length === 0) return [];
 
+  const width = Math.max(1, numCols || CONFIG.SOURCE_LAST_COL_INDEX + 1);
   const records = [];
   const blocks = groupContiguous_(uniqueSorted);
 
   blocks.forEach((block) => {
     const start = block[0];
     const numRows = block.length;
-    const values = sheet
-      .getRange(start, 1, numRows, CONFIG.SOURCE_LAST_COL_INDEX + 1)
-      .getValues();
+    const values = sheet.getRange(start, 1, numRows, width).getValues();
     for (let i = 0; i < values.length; i++) {
       records.push({
         rowNumber: start + i,
@@ -156,7 +202,7 @@ function buildTargetIdMap_() {
 
   for (let i = 0; i < ids.length; i++) {
     const id = normalizeId_(ids[i][0]);
-    if (!id) continue;
+    if (isBlankId_(ids[i][0]) || !id) continue;
     const absoluteRow = CONFIG.TARGET_DATA_START_ROW + i;
     if (map.has(id) || duplicates.has(id)) {
       duplicates.add(id);
@@ -192,7 +238,7 @@ function allocateTargetInsertRows_(sheet, count) {
     const numRows = scanEnd - start + 1;
     const ids = sheet.getRange(start, idCol, numRows, 1).getValues();
     for (let i = 0; i < ids.length && allocated.length < count; i++) {
-      if (isBlank_(ids[i][0])) {
+      if (isBlankId_(ids[i][0])) {
         allocated.push(start + i);
       }
     }

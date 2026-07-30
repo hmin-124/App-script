@@ -92,6 +92,41 @@ function isBlank_(value) {
 }
 
 /**
+ * True when a value cannot be used as ID BOKT (blank, checkbox boolean, 0).
+ * @param {*} value
+ * @returns {boolean}
+ */
+function isBlankId_(value) {
+  if (isBlank_(value)) return true;
+  if (typeof value === 'boolean') return true;
+  const id = normalizeId_(value);
+  if (!id) return true;
+  if (id === '0' || id.toLowerCase() === 'false' || id.toLowerCase() === 'true') return true;
+  return false;
+}
+
+/**
+ * Extract a BOKT / phiếu ID from free-text nội dung when cột S trống.
+ * @param {*} content
+ * @returns {string}
+ */
+function extractIdFromContent_(content) {
+  if (content === null || content === undefined) return '';
+  const text = String(content);
+  const patterns = [
+    /ID\s*BOKT\s*[:#]?\s*(\d{5,})/i,
+    /ID\s*phiếu\s*[:#]?\s*(\d{5,})/i,
+    /Phiếu\s*ID\s*\[?\s*(\d{5,})\s*\]?/i,
+    /\bBOKT\s*[:#]?\s*(\d{5,})/i,
+  ];
+  for (let i = 0; i < patterns.length; i++) {
+    const m = text.match(patterns[i]);
+    if (m && m[1]) return normalizeId_(m[1]);
+  }
+  return '';
+}
+
+/**
  * Active / effective user email for logging.
  * @returns {string}
  */
