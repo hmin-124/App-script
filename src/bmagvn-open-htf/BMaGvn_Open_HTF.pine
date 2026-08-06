@@ -1,11 +1,12 @@
 //@version=5
-indicator("BMaGvn — Open HTF", overlay = true, max_lines_count = 50, max_labels_count = 50)
+indicator("BMaGvn — Open HTF", overlay = true, max_lines_count = 100, max_labels_count = 100)
 
 // ═══════════════════════════════════════════════════════════════
 // BMaGvn — Open khung liền kề (kỳ hiện tại)
 // H1 · H3 · H4 · H6 · H12 · D1 · D2 · D3 · D5 · W1 · 1M · 3M
 // Đường ngang nét liền · Giá trên cột giá · Nhãn tên khung (H1/D1…)
 // Trùng Open → gộp tên khung, giá cột ưu tiên khung nhỏ
+// W / 1M / 3M: thêm mở cửa 1/4 (2) và 1/2 (chia phiên thành 4)
 // ═══════════════════════════════════════════════════════════════
 
 grpShow = "Hiển thị Open / bảng"
@@ -22,6 +23,12 @@ showD5  = input.bool(true, "D5",  group = grpShow)
 showW1  = input.bool(true, "W1",  group = grpShow)
 showM1  = input.bool(true, "1M",  group = grpShow)
 showM3  = input.bool(true, "3M",  group = grpShow)
+
+grpQuarter = "Mốc 1/4 · 1/2 (W / 1M / 3M)"
+showWQuarters = input.bool(true, "W: 1/4 (2) + 1/2", group = grpQuarter, tooltip = "Chia nến W thành 4 (≈42h/quý). Vẽ mở cửa quý 2 và quý 3 (= 1/2 W).")
+showM1Quarters = input.bool(true, "1M: 1/4 (2) + 1/2", group = grpQuarter, tooltip = "Chia nến Tháng thành 4. Vẽ mở cửa quý 2 và quý 3 (= 1/2 1M).")
+showM3Quarters = input.bool(true, "3M: 1/4 (2) + 1/2", group = grpQuarter, tooltip = "Chia nến 3 Tháng thành 4. Vẽ mở cửa quý 2 và quý 3 (= 1/2 3M).")
+quarterLineStyleIn = input.string("Dashed", "Kiểu nét mốc 1/4·1/2", options = ["Solid", "Dashed", "Dotted"], group = grpQuarter)
 
 grpStyle = "Kiểu"
 showPriceScale = input.bool(true, "Hiện giá Open trên cột giá", group = grpStyle)
@@ -56,7 +63,14 @@ f_tablePos(s) =>
     s == "Top Left" ? position.top_left : s == "Bottom Left" ? position.bottom_left : s == "Bottom Right" ? position.bottom_right : position.top_right
 
 xStyle = f_style(lineStyleIn)
+qStyle = f_style(quarterLineStyleIn)
 nTF = 12
+// Chỉ W / 1M / 3M có mốc chia 4 (idx trong mảng TF chính)
+nQuarter = 3
+qTfIdx = array.from(9, 10, 11)
+qShows = array.from(showWQuarters, showM1Quarters, showM3Quarters)
+qTagQ2 = array.from("1/4 (2) W", "1/4 (2) 1M", "1/4 (2) 3M")
+qTagHalf = array.from("1/2 W", "1/2 1M", "1/2 3M")
 
 // ── OHLC kỳ hiện tại (đang chạy) + time mở phiên ──────────────
 [h1Open,  h1cH,  h1cL,  h1T]  = request.security(syminfo.tickerid, "60",  [open, high, low, time], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
@@ -208,6 +222,59 @@ for i = 0 to nTF - 1
         if not na(array.get(sweepAt, i)) and na(array.get(backOpenAt, i)) and not na(cH) and not na(cO) and cH >= cO
             array.set(backOpenAt, i, time)
 
+// ── Mốc mở cửa 1/4 (2) và 1/2 trong phiên W / 1M / 3M đang chạy ──
+// 1/4 đầu = Open khung (đã vẽ). Quý 2 @ +dur/4 · Quý 3 @ +dur/2 (= 1/2)
+// W: 7 ngày → 42h/quý | 1M/3M: theo lịch tháng / quý thực tế
+f_quarterDur(int tfIdx, int pStart) =>
+    int dur = array.get(tfMs, tfIdx)
+    if not na(pStart)
+        if tfIdx == 9
+            dur := 604800000
+        else if tfIdx == 10
+            y = year(pStart)
+            m = month(pStart)
+            nextY = m == 12 ? y + 1 : y
+            nextM = m == 12 ? 1 : m + 1
+            dur := int(timestamp(nextY, nextM, 1, 0, 0, 0) - pStart)
+        else if tfIdx == 11
+            y = year(pStart)
+            m = month(pStart)
+            nextM = m + 3
+            nextY = y
+            if nextM > 12
+                nextM := nextM - 12
+                nextY := y + 1
+            dur := int(timestamp(nextY, nextM, 1, 0, 0, 0) - pStart)
+    dur
+
+var float[] q2OpenPx = array.new_float(nQuarter, na)
+var float[] halfOpenPx = array.new_float(nQuarter, na)
+var int[] q2OpenT = array.new_int(nQuarter, na)
+var int[] halfOpenT = array.new_int(nQuarter, na)
+var int[] qPrevPeriod = array.new_int(nQuarter, na)
+
+for k = 0 to nQuarter - 1
+    int tfIdx = array.get(qTfIdx, k)
+    int pStart = array.get(times, tfIdx)
+    int dur = f_quarterDur(tfIdx, pStart)
+    int prevP = array.get(qPrevPeriod, k)
+    if not na(pStart) and (na(prevP) or pStart != prevP)
+        array.set(q2OpenPx, k, na)
+        array.set(halfOpenPx, k, na)
+        array.set(q2OpenT, k, na)
+        array.set(halfOpenT, k, na)
+        array.set(qPrevPeriod, k, pStart)
+    if not na(pStart) and dur > 0
+        int tQ2 = pStart + dur / 4
+        int tHalf = pStart + dur / 2
+        // Nến chart đầu tiên chạm mốc → lấy open (= mở cửa quý)
+        if na(array.get(q2OpenPx, k)) and time >= tQ2
+            array.set(q2OpenPx, k, open)
+            array.set(q2OpenT, k, time)
+        if na(array.get(halfOpenPx, k)) and time >= tHalf
+            array.set(halfOpenPx, k, open)
+            array.set(halfOpenT, k, time)
+
 f_same(float a, float b) =>
     not na(a) and not na(b) and math.abs(a - b) <= syminfo.mintick
 
@@ -241,6 +308,10 @@ f_mergedTag(int idx) =>
 
 var line[]  lines  = array.new_line(nTF, na)
 var label[] tfTags = array.new_label(nTF, na)
+var line[]  q2Lines = array.new_line(nQuarter, na)
+var line[]  halfLines = array.new_line(nQuarter, na)
+var label[] q2Tags = array.new_label(nQuarter, na)
+var label[] halfTags = array.new_label(nQuarter, na)
 
 f_updLine(int idx) =>
     on = array.get(shows, idx) and f_drawLevel(idx)
@@ -293,11 +364,65 @@ f_updTfTag(int idx) =>
         lb := na
     array.set(tfTags, idx, lb)
 
+// Đường + nhãn mốc 1/4 (2) / 1/2 cho W · 1M · 3M
+f_setQLine(int k, bool isHalf, bool on, float px, int t0, color col) =>
+    ln = isHalf ? array.get(halfLines, k) : array.get(q2Lines, k)
+    if on and not na(px) and not na(t0)
+        int barMs = math.max(timeframe.in_seconds() * 1000, 60000)
+        int x2 = t0 + barMs
+        if na(ln)
+            ln := line.new(t0, px, x2, px, xloc = xloc.bar_time, extend = extend.right, color = col, width = lineWidth, style = qStyle)
+        else
+            line.set_xy1(ln, t0, px)
+            line.set_xy2(ln, x2, px)
+            line.set_color(ln, col)
+            line.set_width(ln, lineWidth)
+            line.set_style(ln, qStyle)
+            line.set_extend(ln, extend.right)
+    else if not na(ln)
+        line.delete(ln)
+        ln := na
+    if isHalf
+        array.set(halfLines, k, ln)
+    else
+        array.set(q2Lines, k, ln)
+
+f_setQTag(int k, bool isHalf, bool on, float px, color col, string txt) =>
+    lb = isHalf ? array.get(halfTags, k) : array.get(q2Tags, k)
+    if showTfTags and on and not na(px)
+        int barMs = math.max(timeframe.in_seconds() * 1000, 60000)
+        int xRight = chart.right_visible_bar_time + labelPad * barMs
+        if na(lb)
+            lb := label.new(xRight, px, txt, xloc = xloc.bar_time, yloc = yloc.price, style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
+        else
+            label.set_xloc(lb, xRight, xloc.bar_time)
+            label.set_xy(lb, xRight, px)
+            label.set_text(lb, txt)
+            label.set_textcolor(lb, color.white)
+            label.set_color(lb, col)
+            label.set_style(lb, label.style_label_left)
+            label.set_size(lb, size.small)
+    else if not na(lb)
+        label.delete(lb)
+        lb := na
+    if isHalf
+        array.set(halfTags, k, lb)
+    else
+        array.set(q2Tags, k, lb)
+
 // chart.right_visible_bar_time → script re-run khi scroll/zoom; cập nhật nhãn mỗi lần chạy cuối
 if barstate.islast
     for i = 0 to nTF - 1
         f_updLine(i)
         f_updTfTag(i)
+    for k = 0 to nQuarter - 1
+        int tfIdx = array.get(qTfIdx, k)
+        bool qOn = array.get(qShows, k) and array.get(shows, tfIdx)
+        color qCol = array.get(cols, tfIdx)
+        f_setQLine(k, false, qOn, array.get(q2OpenPx, k), array.get(q2OpenT, k), qCol)
+        f_setQLine(k, true, qOn, array.get(halfOpenPx, k), array.get(halfOpenT, k), qCol)
+        f_setQTag(k, false, qOn, array.get(q2OpenPx, k), qCol, array.get(qTagQ2, k))
+        f_setQTag(k, true, qOn, array.get(halfOpenPx, k), qCol, array.get(qTagHalf, k))
 
 // Giá Open trên cột giá — trùng thì chỉ leader (khung nhỏ)
 plot(f_showScale(0)  ? h1Open  : na, "H1",  color = colH1,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
@@ -312,6 +437,14 @@ plot(f_showScale(8)  ? d5Open  : na, "D5",  color = colD5,  linewidth = 2, style
 plot(f_showScale(9)  ? w1Open  : na, "W1",  color = colW1,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
 plot(f_showScale(10) ? m1Open  : na, "1M",  color = colM1,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
 plot(f_showScale(11) ? m3Open  : na, "3M",  color = colM3,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+
+// Giá mốc 1/4 (2) · 1/2 trên cột giá (khi đã qua thời điểm mở quý)
+plot(showPriceScale and showW1 and showWQuarters  ? array.get(q2OpenPx, 0)   : na, "1/4 (2) W",  color = colW1, linewidth = 1, style = plot.style_linebr, display = display.price_scale)
+plot(showPriceScale and showW1 and showWQuarters  ? array.get(halfOpenPx, 0) : na, "1/2 W",      color = colW1, linewidth = 1, style = plot.style_linebr, display = display.price_scale)
+plot(showPriceScale and showM1 and showM1Quarters ? array.get(q2OpenPx, 1)   : na, "1/4 (2) 1M", color = colM1, linewidth = 1, style = plot.style_linebr, display = display.price_scale)
+plot(showPriceScale and showM1 and showM1Quarters ? array.get(halfOpenPx, 1) : na, "1/2 1M",     color = colM1, linewidth = 1, style = plot.style_linebr, display = display.price_scale)
+plot(showPriceScale and showM3 and showM3Quarters ? array.get(q2OpenPx, 2)   : na, "1/4 (2) 3M", color = colM3, linewidth = 1, style = plot.style_linebr, display = display.price_scale)
+plot(showPriceScale and showM3 and showM3Quarters ? array.get(halfOpenPx, 2) : na, "1/2 3M",     color = colM3, linewidth = 1, style = plot.style_linebr, display = display.price_scale)
 
 // Đảo chiều trên NẾN HIỆN TẠI (đang chạy) vs tín hiệu nến đóng liền trước [1]
 // Cửa sổ: lý tưởng 1/4 · tối đa 1/2 phiên hiện tại
