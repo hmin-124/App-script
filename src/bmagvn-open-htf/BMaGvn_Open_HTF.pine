@@ -247,6 +247,18 @@ f_quarterDur(int tfIdx, int pStart) =>
             dur := int(timestamp(nextY, nextM, 1, 0, 0, 0) - pStart)
     dur
 
+// Cache Open HTF theo phiên — khóa giá khi đổi period, không đổi khi scroll/zoom
+var float[] stableOpenPx = array.new_float(nTF, na)
+var int[] stableOpenT = array.new_int(nTF, na)
+for i = 0 to nTF - 1
+    int t0i = array.get(times, i)
+    float pxi = array.get(opens, i)
+    if not na(t0i) and not na(pxi)
+        int prevTi = array.get(stableOpenT, i)
+        if na(prevTi) or prevTi != t0i
+            array.set(stableOpenT, i, t0i)
+            array.set(stableOpenPx, i, pxi)
+
 var float[] q2OpenPx = array.new_float(nQuarter, na)
 var float[] halfOpenPx = array.new_float(nQuarter, na)
 var int[] q2OpenT = array.new_int(nQuarter, na)
@@ -267,13 +279,16 @@ for k = 0 to nQuarter - 1
     if not na(pStart) and dur > 0
         int tQ2 = pStart + dur / 4
         int tHalf = pStart + dur / 2
-        // Nến chart đầu tiên chạm mốc → lấy open (= mở cửa quý)
-        if na(array.get(q2OpenPx, k)) and time >= tQ2
+        // Chỉ bắt ĐÚNG nến cắt mốc (time[1] < mốc ≤ time).
+        // Không dùng "time >= mốc" — khi scroll/zoom cửa sổ tính lại lệch sẽ lấy nhầm open nến đầu.
+        bool crossQ2 = not na(time[1]) and time[1] < tQ2 and time >= tQ2
+        bool crossHalf = not na(time[1]) and time[1] < tHalf and time >= tHalf
+        if crossQ2
             array.set(q2OpenPx, k, open)
-            array.set(q2OpenT, k, time)
-        if na(array.get(halfOpenPx, k)) and time >= tHalf
+            array.set(q2OpenT, k, tQ2)
+        if crossHalf
             array.set(halfOpenPx, k, open)
-            array.set(halfOpenT, k, time)
+            array.set(halfOpenT, k, tHalf)
 
 f_same(float a, float b) =>
     not na(a) and not na(b) and math.abs(a - b) <= syminfo.mintick
@@ -282,13 +297,13 @@ f_same(float a, float b) =>
 f_drawLevel(int idx) =>
     idx >= 4
 
-// Leader = khung nhỏ nhất trong nhóm Open trùng (chỉ các khung được vẽ)
+// Leader = khung nhỏ nhất trong nhóm Open trùng (chỉ các khung được vẽ) — dùng giá đã khóa
 f_isLeader(int idx) =>
-    bool ok = array.get(shows, idx) and f_drawLevel(idx) and not na(array.get(opens, idx))
+    bool ok = array.get(shows, idx) and f_drawLevel(idx) and not na(array.get(stableOpenPx, idx))
     if ok and idx > 0
-        px = array.get(opens, idx)
+        px = array.get(stableOpenPx, idx)
         for j = 0 to idx - 1
-            if array.get(shows, j) and f_drawLevel(j) and f_same(px, array.get(opens, j))
+            if array.get(shows, j) and f_drawLevel(j) and f_same(px, array.get(stableOpenPx, j))
                 ok := false
                 break
     ok
@@ -299,10 +314,10 @@ f_showScale(int idx) =>
 // Gộp tên khung cùng mức Open (chỉ khung có đường ngang)
 f_mergedTag(int idx) =>
     string names = array.get(tags, idx)
-    px = array.get(opens, idx)
+    px = array.get(stableOpenPx, idx)
     if idx < nTF - 1
         for j = idx + 1 to nTF - 1
-            if array.get(shows, j) and f_drawLevel(j) and f_same(px, array.get(opens, j))
+            if array.get(shows, j) and f_drawLevel(j) and f_same(px, array.get(stableOpenPx, j))
                 names += "/" + array.get(tags, j)
     names
 
@@ -312,76 +327,108 @@ var line[]  q2Lines = array.new_line(nQuarter, na)
 var line[]  halfLines = array.new_line(nQuarter, na)
 var label[] q2Tags = array.new_label(nQuarter, na)
 var label[] halfTags = array.new_label(nQuarter, na)
+// Giá/thời điểm đã vẽ — tránh set lại Y mỗi lần scroll (chart.right_visible_bar_time)
+var float[] drawnOpenPx = array.new_float(nTF, na)
+var int[] drawnOpenT = array.new_int(nTF, na)
+var float[] drawnQ2Px = array.new_float(nQuarter, na)
+var int[] drawnQ2T = array.new_int(nQuarter, na)
+var float[] drawnHalfPx = array.new_float(nQuarter, na)
+var int[] drawnHalfT = array.new_int(nQuarter, na)
+
+f_barMs() =>
+    int(math.max(timeframe.in_seconds() * 1000, 60000))
 
 f_updLine(int idx) =>
     on = array.get(shows, idx) and f_drawLevel(idx)
-    px = array.get(opens, idx)
-    t0 = array.get(times, idx)
+    px = array.get(stableOpenPx, idx)
+    t0 = array.get(stableOpenT, idx)
     col = array.get(cols, idx)
     ln = array.get(lines, idx)
     if on and not na(px) and not na(t0)
         // Chỉ neo đoạn ngắn ngay sau mở phiên + extend.right
-        // Không đặt x2 = time (nến hiện tại) → tránh đường dọc tại nến cuối
-        int barMs = math.max(timeframe.in_seconds() * 1000, 60000)
+        int barMs = f_barMs()
         int x2 = t0 + barMs
+        bool needGeom = na(ln) or na(array.get(drawnOpenPx, idx)) or array.get(drawnOpenPx, idx) != px or array.get(drawnOpenT, idx) != t0
         if na(ln)
             ln := line.new(t0, px, x2, px, xloc = xloc.bar_time, extend = extend.right, color = col, width = lineWidth, style = xStyle)
-        else
+            array.set(drawnOpenPx, idx, px)
+            array.set(drawnOpenT, idx, t0)
+        else if needGeom
             line.set_xy1(ln, t0, px)
             line.set_xy2(ln, x2, px)
-            line.set_color(ln, col)
-            line.set_width(ln, lineWidth)
-            line.set_style(ln, xStyle)
-            line.set_extend(ln, extend.right)
-    else if not na(ln)
+            array.set(drawnOpenPx, idx, px)
+            array.set(drawnOpenT, idx, t0)
+        line.set_color(ln, col)
+        line.set_width(ln, lineWidth)
+        line.set_style(ln, xStyle)
+        line.set_extend(ln, extend.right)
+    else if not on and not na(ln)
+        // Chỉ xóa khi tắt hiển thị — không xóa khi px tạm na lúc recalc/scroll
         line.delete(ln)
         ln := na
+        array.set(drawnOpenPx, idx, na)
+        array.set(drawnOpenT, idx, na)
     array.set(lines, idx, ln)
 
-// Nhãn tên khung sát lề phải viewport
-// style_label_left: mũi tên trái + hộp chữ nằm bên phải điểm neo → sát mép phải
-// (style_label_right khiến chữ dài kéo vào giữa chart)
+// Nhãn tên khung sát lề phải viewport — scroll chỉ đổi X, Y lấy từ giá đã khóa
 f_updTfTag(int idx) =>
     lb = array.get(tfTags, idx)
-    if showTfTags and f_isLeader(idx)
-        px = array.get(opens, idx)
+    px = array.get(stableOpenPx, idx)
+    if showTfTags and f_isLeader(idx) and not na(px)
         col = array.get(cols, idx)
         txt = f_mergedTag(idx)
-        int barMs = math.max(timeframe.in_seconds() * 1000, 60000)
-        int xRight = chart.right_visible_bar_time + labelPad * barMs
+        int xRight = chart.right_visible_bar_time + labelPad * f_barMs()
         if na(lb)
             lb := label.new(xRight, px, txt, xloc = xloc.bar_time, yloc = yloc.price, style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
         else
             label.set_xloc(lb, xRight, xloc.bar_time)
-            label.set_xy(lb, xRight, px)
+            label.set_y(lb, px)
             label.set_text(lb, txt)
             label.set_textcolor(lb, color.white)
             label.set_color(lb, col)
             label.set_style(lb, label.style_label_left)
             label.set_size(lb, size.small)
-    else if not na(lb)
-        label.delete(lb)
-        lb := na
+    else if not showTfTags or not array.get(shows, idx) or not f_drawLevel(idx)
+        if not na(lb)
+            label.delete(lb)
+            lb := na
     array.set(tfTags, idx, lb)
 
 // Đường + nhãn mốc 1/4 (2) / 1/2 cho W · 1M · 3M
 f_setQLine(int k, bool isHalf, bool on, float px, int t0, color col) =>
     ln = isHalf ? array.get(halfLines, k) : array.get(q2Lines, k)
+    float prevPx = isHalf ? array.get(drawnHalfPx, k) : array.get(drawnQ2Px, k)
+    int prevT = isHalf ? array.get(drawnHalfT, k) : array.get(drawnQ2T, k)
     if on and not na(px) and not na(t0)
-        int barMs = math.max(timeframe.in_seconds() * 1000, 60000)
+        int barMs = f_barMs()
         int x2 = t0 + barMs
+        bool needGeom = na(ln) or na(prevPx) or prevPx != px or na(prevT) or prevT != t0
         if na(ln)
             ln := line.new(t0, px, x2, px, xloc = xloc.bar_time, extend = extend.right, color = col, width = lineWidth, style = qStyle)
-        else
+        else if needGeom
             line.set_xy1(ln, t0, px)
             line.set_xy2(ln, x2, px)
-            line.set_color(ln, col)
-            line.set_width(ln, lineWidth)
-            line.set_style(ln, qStyle)
-            line.set_extend(ln, extend.right)
-    else if not na(ln)
+        if needGeom
+            if isHalf
+                array.set(drawnHalfPx, k, px)
+                array.set(drawnHalfT, k, t0)
+            else
+                array.set(drawnQ2Px, k, px)
+                array.set(drawnQ2T, k, t0)
+        line.set_color(ln, col)
+        line.set_width(ln, lineWidth)
+        line.set_style(ln, qStyle)
+        line.set_extend(ln, extend.right)
+    else if not na(ln) and (not on or na(px) or na(t0))
+        // Tắt hiển thị hoặc đổi phiên / chưa tới mốc → xóa (tránh giữ giá phiên cũ)
         line.delete(ln)
         ln := na
+        if isHalf
+            array.set(drawnHalfPx, k, na)
+            array.set(drawnHalfT, k, na)
+        else
+            array.set(drawnQ2Px, k, na)
+            array.set(drawnQ2T, k, na)
     if isHalf
         array.set(halfLines, k, ln)
     else
@@ -390,27 +437,28 @@ f_setQLine(int k, bool isHalf, bool on, float px, int t0, color col) =>
 f_setQTag(int k, bool isHalf, bool on, float px, color col, string txt) =>
     lb = isHalf ? array.get(halfTags, k) : array.get(q2Tags, k)
     if showTfTags and on and not na(px)
-        int barMs = math.max(timeframe.in_seconds() * 1000, 60000)
-        int xRight = chart.right_visible_bar_time + labelPad * barMs
+        int xRight = chart.right_visible_bar_time + labelPad * f_barMs()
         if na(lb)
             lb := label.new(xRight, px, txt, xloc = xloc.bar_time, yloc = yloc.price, style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
         else
+            // Scroll/zoom: chỉ neo X theo mép phải; Y giữ giá đã khóa
             label.set_xloc(lb, xRight, xloc.bar_time)
-            label.set_xy(lb, xRight, px)
+            label.set_y(lb, px)
             label.set_text(lb, txt)
             label.set_textcolor(lb, color.white)
             label.set_color(lb, col)
             label.set_style(lb, label.style_label_left)
             label.set_size(lb, size.small)
-    else if not na(lb)
-        label.delete(lb)
-        lb := na
+    else if not showTfTags or not on
+        if not na(lb)
+            label.delete(lb)
+            lb := na
     if isHalf
         array.set(halfTags, k, lb)
     else
         array.set(q2Tags, k, lb)
 
-// chart.right_visible_bar_time → script re-run khi scroll/zoom; cập nhật nhãn mỗi lần chạy cuối
+// chart.right_visible_bar_time → re-run khi scroll/zoom: chỉ cập nhật X nhãn; Y đường đã khóa
 if barstate.islast
     for i = 0 to nTF - 1
         f_updLine(i)
@@ -424,19 +472,19 @@ if barstate.islast
         f_setQTag(k, false, qOn, array.get(q2OpenPx, k), qCol, array.get(qTagQ2, k))
         f_setQTag(k, true, qOn, array.get(halfOpenPx, k), qCol, array.get(qTagHalf, k))
 
-// Giá Open trên cột giá — trùng thì chỉ leader (khung nhỏ)
-plot(f_showScale(0)  ? h1Open  : na, "H1",  color = colH1,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
-plot(f_showScale(1)  ? h3Open  : na, "H3",  color = colH3,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
-plot(f_showScale(2)  ? h4Open  : na, "H4",  color = colH4,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
-plot(f_showScale(3)  ? h6Open  : na, "H6",  color = colH6,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
-plot(f_showScale(4)  ? h12Open : na, "H12", color = colH12, linewidth = 2, style = plot.style_linebr, display = display.price_scale)
-plot(f_showScale(5)  ? d1Open  : na, "D1",  color = colD1,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
-plot(f_showScale(6)  ? d2Open  : na, "D2",  color = colD2,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
-plot(f_showScale(7)  ? d3Open  : na, "D3",  color = colD3,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
-plot(f_showScale(8)  ? d5Open  : na, "D5",  color = colD5,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
-plot(f_showScale(9)  ? w1Open  : na, "W1",  color = colW1,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
-plot(f_showScale(10) ? m1Open  : na, "1M",  color = colM1,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
-plot(f_showScale(11) ? m3Open  : na, "3M",  color = colM3,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+// Giá Open trên cột giá — dùng stableOpenPx (khóa theo phiên, không nhảy khi scroll)
+plot(f_showScale(0)  ? array.get(stableOpenPx, 0)  : na, "H1",  color = colH1,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(1)  ? array.get(stableOpenPx, 1)  : na, "H3",  color = colH3,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(2)  ? array.get(stableOpenPx, 2)  : na, "H4",  color = colH4,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(3)  ? array.get(stableOpenPx, 3)  : na, "H6",  color = colH6,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(4)  ? array.get(stableOpenPx, 4)  : na, "H12", color = colH12, linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(5)  ? array.get(stableOpenPx, 5)  : na, "D1",  color = colD1,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(6)  ? array.get(stableOpenPx, 6)  : na, "D2",  color = colD2,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(7)  ? array.get(stableOpenPx, 7)  : na, "D3",  color = colD3,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(8)  ? array.get(stableOpenPx, 8)  : na, "D5",  color = colD5,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(9)  ? array.get(stableOpenPx, 9)  : na, "W1",  color = colW1,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(10) ? array.get(stableOpenPx, 10) : na, "1M",  color = colM1,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(11) ? array.get(stableOpenPx, 11) : na, "3M",  color = colM3,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
 
 // Giá mốc 1/4 (2) · 1/2 trên cột giá (khi đã qua thời điểm mở quý)
 plot(showPriceScale and showW1 and showWQuarters  ? array.get(q2OpenPx, 0)   : na, "1/4 (2) W",  color = colW1, linewidth = 1, style = plot.style_linebr, display = display.price_scale)
