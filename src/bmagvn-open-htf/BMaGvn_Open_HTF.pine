@@ -1,0 +1,644 @@
+//@version=5
+indicator("BMaGvn — Open HTF", overlay = true, max_lines_count = 100, max_labels_count = 100)
+
+// ═══════════════════════════════════════════════════════════════
+// BMaGvn — Open khung liền kề (kỳ hiện tại)
+// H1 · H3 · H4 · H6 · H12 · D1 · D2 · D3 · D5 · W1 · 1M · 3M
+// Đường ngang nét liền · Giá trên cột giá · Nhãn tên khung (H1/D1…)
+// Trùng Open → gộp tên khung, giá cột ưu tiên khung nhỏ
+// W / 1M / 3M: thêm mở cửa 1/4 (2) và 1/2 (chia phiên thành 4)
+// ═══════════════════════════════════════════════════════════════
+
+grpShow = "Hiển thị Open / bảng"
+// H1–H6: chỉ bảng (không vẽ đường ngang trên chart)
+showH1  = input.bool(true, "H1 (bảng)",  group = grpShow)
+showH3  = input.bool(true, "H3 (bảng)",  group = grpShow)
+showH4  = input.bool(true, "H4 (bảng)",  group = grpShow)
+showH6  = input.bool(true, "H6 (bảng)",  group = grpShow)
+showH12 = input.bool(true, "H12", group = grpShow)
+showD1  = input.bool(true, "D1",  group = grpShow)
+showD2  = input.bool(true, "D2",  group = grpShow)
+showD3  = input.bool(true, "D3",  group = grpShow)
+showD5  = input.bool(true, "D5",  group = grpShow)
+showW1  = input.bool(true, "W1",  group = grpShow)
+showM1  = input.bool(true, "1M",  group = grpShow)
+showM3  = input.bool(true, "3M",  group = grpShow)
+
+grpQuarter = "Mốc 1/4 · 1/2 (W / 1M / 3M)"
+showWQuarters = input.bool(true, "W: 1/4 (2) + 1/2", group = grpQuarter, tooltip = "Chia nến W thành 4 (≈42h/quý). Vẽ mở cửa quý 2 và quý 3 (= 1/2 W).")
+showM1Quarters = input.bool(true, "1M: 1/4 (2) + 1/2", group = grpQuarter, tooltip = "Chia nến Tháng thành 4. Vẽ mở cửa quý 2 và quý 3 (= 1/2 1M).")
+showM3Quarters = input.bool(true, "3M: 1/4 (2) + 1/2", group = grpQuarter, tooltip = "Chia nến 3 Tháng thành 4. Vẽ mở cửa quý 2 và quý 3 (= 1/2 3M).")
+quarterLineStyleIn = input.string("Dashed", "Kiểu nét mốc 1/4·1/2", options = ["Solid", "Dashed", "Dotted"], group = grpQuarter)
+
+grpStyle = "Kiểu"
+showPriceScale = input.bool(true, "Hiện giá Open trên cột giá", group = grpStyle)
+showTfTags     = input.bool(true, "Hiện tên khung (H1/D1…)", group = grpStyle)
+labelPad       = input.int(1, "Đẩy nhãn vào lề phải (bar)", minval = 0, maxval = 50, group = grpStyle, tooltip = "Neo sát mép phải viewport. Tăng nếu muốn lệch thêm vào khoảng trống. Nên bật Right margin ≥ 10% (Chart Settings → Canvas).")
+lineWidth   = input.int(1, "Độ dày đường", minval = 1, maxval = 4, group = grpStyle)
+lineStyleIn = input.string("Solid", "Kiểu nét", options = ["Solid", "Dashed", "Dotted"], group = grpStyle)
+
+grpColor = "Màu (dễ nhìn)"
+colH1  = input.color(#00897B, "H1",  group = grpColor)
+colH3  = input.color(#00ACC1, "H3",  group = grpColor)
+colH4  = input.color(#039BE5, "H4",  group = grpColor)
+colH6  = input.color(#1E88E5, "H6",  group = grpColor)
+colH12 = input.color(#3949AB, "H12", group = grpColor)
+colD1  = input.color(#2E7D32, "D1",  group = grpColor)
+colD2  = input.color(#558B2F, "D2",  group = grpColor)
+colD3  = input.color(#6A1B9A, "D3",  group = grpColor)
+colD5  = input.color(#AD1457, "D5",  group = grpColor)
+colW1  = input.color(#EF6C00, "W1",  group = grpColor)
+colM1  = input.color(#D84315, "1M",  group = grpColor)
+colM3  = input.color(#C62828, "3M",  group = grpColor)
+
+grpPhase = "Bảng nến đóng trước"
+showTable  = input.bool(true, "Hiện bảng", group = grpPhase)
+tablePosIn = input.string("Top Right", "Vị trí bảng", options = ["Top Right", "Bottom Right", "Top Left", "Bottom Left"], group = grpPhase)
+
+// ── Helpers ───────────────────────────────────────────────────
+f_style(s) =>
+    s == "Dashed" ? line.style_dashed : s == "Dotted" ? line.style_dotted : line.style_solid
+
+f_tablePos(s) =>
+    s == "Top Left" ? position.top_left : s == "Bottom Left" ? position.bottom_left : s == "Bottom Right" ? position.bottom_right : position.top_right
+
+xStyle = f_style(lineStyleIn)
+qStyle = f_style(quarterLineStyleIn)
+nTF = 12
+// Chỉ W / 1M / 3M có mốc chia 4 (idx trong mảng TF chính)
+nQuarter = 3
+qTfIdx = array.from(9, 10, 11)
+qShows = array.from(showWQuarters, showM1Quarters, showM3Quarters)
+qTagQ2 = array.from("1/4 (2) W", "1/4 (2) 1M", "1/4 (2) 3M")
+qTagHalf = array.from("1/2 W", "1/2 1M", "1/2 3M")
+
+// ── OHLC kỳ hiện tại (đang chạy) + time mở phiên ──────────────
+[h1Open,  h1cH,  h1cL,  h1T]  = request.security(syminfo.tickerid, "60",  [open, high, low, time], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+[h3Open,  h3cH,  h3cL,  h3T]  = request.security(syminfo.tickerid, "180", [open, high, low, time], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+[h4Open,  h4cH,  h4cL,  h4T]  = request.security(syminfo.tickerid, "240", [open, high, low, time], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+[h6Open,  h6cH,  h6cL,  h6T]  = request.security(syminfo.tickerid, "360", [open, high, low, time], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+[h12Open, h12cH, h12cL, h12T] = request.security(syminfo.tickerid, "720", [open, high, low, time], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+[d1Open,  d1cH,  d1cL,  d1T]  = request.security(syminfo.tickerid, "D",   [open, high, low, time], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+[d2Open,  d2cH,  d2cL,  d2T]  = request.security(syminfo.tickerid, "2D",  [open, high, low, time], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+[d3Open,  d3cH,  d3cL,  d3T]  = request.security(syminfo.tickerid, "3D",  [open, high, low, time], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+[d5Open,  d5cH,  d5cL,  d5T]  = request.security(syminfo.tickerid, "5D",  [open, high, low, time], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+[w1Open,  w1cH,  w1cL,  w1T]  = request.security(syminfo.tickerid, "W",   [open, high, low, time], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+[m1Open,  m1cH,  m1cL,  m1T]  = request.security(syminfo.tickerid, "M",   [open, high, low, time], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+[m3Open,  m3cH,  m3cL,  m3T]  = request.security(syminfo.tickerid, "3M",  [open, high, low, time], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+
+// ── BẢNG: [1]=nến đóng liền trước (nến SAU) · [2]=nến tín hiệu (nến TRƯỚC)
+[h1nO, h1nH, h1nL, h1nC, h1sO, h1sH, h1sL, h1sC] = request.security(syminfo.tickerid, "60",  [open[1], high[1], low[1], close[1], open[2], high[2], low[2], close[2]], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[h3nO, h3nH, h3nL, h3nC, h3sO, h3sH, h3sL, h3sC] = request.security(syminfo.tickerid, "180", [open[1], high[1], low[1], close[1], open[2], high[2], low[2], close[2]], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[h4nO, h4nH, h4nL, h4nC, h4sO, h4sH, h4sL, h4sC] = request.security(syminfo.tickerid, "240", [open[1], high[1], low[1], close[1], open[2], high[2], low[2], close[2]], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[h6nO, h6nH, h6nL, h6nC, h6sO, h6sH, h6sL, h6sC] = request.security(syminfo.tickerid, "360", [open[1], high[1], low[1], close[1], open[2], high[2], low[2], close[2]], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[h12nO, h12nH, h12nL, h12nC, h12sO, h12sH, h12sL, h12sC] = request.security(syminfo.tickerid, "720", [open[1], high[1], low[1], close[1], open[2], high[2], low[2], close[2]], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[d1nO, d1nH, d1nL, d1nC, d1sO, d1sH, d1sL, d1sC] = request.security(syminfo.tickerid, "D",   [open[1], high[1], low[1], close[1], open[2], high[2], low[2], close[2]], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[d2nO, d2nH, d2nL, d2nC, d2sO, d2sH, d2sL, d2sC] = request.security(syminfo.tickerid, "2D",  [open[1], high[1], low[1], close[1], open[2], high[2], low[2], close[2]], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[d3nO, d3nH, d3nL, d3nC, d3sO, d3sH, d3sL, d3sC] = request.security(syminfo.tickerid, "3D",  [open[1], high[1], low[1], close[1], open[2], high[2], low[2], close[2]], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[d5nO, d5nH, d5nL, d5nC, d5sO, d5sH, d5sL, d5sC] = request.security(syminfo.tickerid, "5D",  [open[1], high[1], low[1], close[1], open[2], high[2], low[2], close[2]], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[w1nO, w1nH, w1nL, w1nC, w1sO, w1sH, w1sL, w1sC] = request.security(syminfo.tickerid, "W",   [open[1], high[1], low[1], close[1], open[2], high[2], low[2], close[2]], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[m1nO, m1nH, m1nL, m1nC, m1sO, m1sH, m1sL, m1sC] = request.security(syminfo.tickerid, "M",   [open[1], high[1], low[1], close[1], open[2], high[2], low[2], close[2]], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+[m3nO, m3nH, m3nL, m3nC, m3sO, m3sH, m3sL, m3sC] = request.security(syminfo.tickerid, "3M",  [open[1], high[1], low[1], close[1], open[2], high[2], low[2], close[2]], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+
+// ── Pack arrays (thứ tự nhỏ → lớn) ────────────────────────────
+tags   = array.from("H1", "H3", "H4", "H6", "H12", "D1", "D2", "D3", "D5", "W1", "1M", "3M")
+shows  = array.from(showH1, showH3, showH4, showH6, showH12, showD1, showD2, showD3, showD5, showW1, showM1, showM3)
+opens  = array.from(h1Open, h3Open, h4Open, h6Open, h12Open, d1Open, d2Open, d3Open, d5Open, w1Open, m1Open, m3Open)
+curH   = array.from(h1cH, h3cH, h4cH, h6cH, h12cH, d1cH, d2cH, d3cH, d5cH, w1cH, m1cH, m3cH)
+curL   = array.from(h1cL, h3cL, h4cL, h6cL, h12cL, d1cL, d2cL, d3cL, d5cL, w1cL, m1cL, m3cL)
+times  = array.from(h1T, h3T, h4T, h6T, h12T, d1T, d2T, d3T, d5T, w1T, m1T, m3T)
+cols   = array.from(colH1, colH3, colH4, colH6, colH12, colD1, colD2, colD3, colD5, colW1, colM1, colM3)
+// Độ dài phiên (ms) — dùng cho cửa sổ đảo chiều 1/4 · 1/2
+// H1=60m → 15–30m | H4=4h → 1–2h | D1=1ngày → 6–12h ...
+tfMs = array.from(3600000, 10800000, 14400000, 21600000, 43200000, 86400000, 172800000, 259200000, 432000000, 604800000, 2592000000, 7776000000)
+// nến SAU = đóng liền kề [1]
+nxtO = array.from(h1nO, h3nO, h4nO, h6nO, h12nO, d1nO, d2nO, d3nO, d5nO, w1nO, m1nO, m3nO)
+nxtH = array.from(h1nH, h3nH, h4nH, h6nH, h12nH, d1nH, d2nH, d3nH, d5nH, w1nH, m1nH, m3nH)
+nxtL = array.from(h1nL, h3nL, h4nL, h6nL, h12nL, d1nL, d2nL, d3nL, d5nL, w1nL, m1nL, m3nL)
+nxtC = array.from(h1nC, h3nC, h4nC, h6nC, h12nC, d1nC, d2nC, d3nC, d5nC, w1nC, m1nC, m3nC)
+// nến TRƯỚC = tín hiệu [2]
+sigO = array.from(h1sO, h3sO, h4sO, h6sO, h12sO, d1sO, d2sO, d3sO, d5sO, w1sO, m1sO, m3sO)
+sigH = array.from(h1sH, h3sH, h4sH, h6sH, h12sH, d1sH, d2sH, d3sH, d5sH, w1sH, m1sH, m3sH)
+sigL = array.from(h1sL, h3sL, h4sL, h6sL, h12sL, d1sL, d2sL, d3sL, d5sL, w1sL, m1sL, m3sL)
+sigC = array.from(h1sC, h3sC, h4sC, h6sC, h12sC, d1sC, d2sC, d3sC, d5sC, w1sC, m1sC, m3sC)
+
+// Tracking thời điểm đảo chiều trong phiên đang chạy → lưu khi nến đóng
+var int[] sweepAt = array.new_int(nTF, na)       // lấy cao/thấp hơn
+var int[] breakAt = array.new_int(nTF, na)       // phá cực tiểu/cực đại
+var int[] backOpenAt = array.new_int(nTF, na)    // về lại Open
+var int[] lastSweepAt = array.new_int(nTF, na)
+var int[] lastBreakAt = array.new_int(nTF, na)
+var int[] lastBackOpenAt = array.new_int(nTF, na)
+var int[] lastPeriodStart = array.new_int(nTF, na)
+var int[] prevHtfT = array.new_int(nTF, na)
+
+f_phaseTag(int eventAt, int periodStart, int durMs) =>
+    string tag = ""
+    if not na(eventAt) and not na(periodStart) and durMs > 0
+        elapsed = eventAt - periodStart
+        if elapsed <= durMs * 0.25
+            tag := "1/4"
+        else if elapsed <= durMs * 0.5
+            tag := "1/2"
+        else
+            tag := "muộn"
+    tag
+
+f_signal(float o, float h, float l, float c) =>
+    string txt = "—"
+    color col = color.gray
+    if not na(o) and not na(h) and not na(l) and not na(c)
+        if c >= o
+            mid = o + (h - o) * 0.5
+            if c > mid
+                txt := "Báo tăng"
+                col := color.new(#00C853, 0)
+            else
+                txt := "2 đầu Xanh"
+                col := color.new(#69F0AE, 0)
+        else
+            mid = o - (o - l) * 0.5
+            if c < mid
+                txt := "Báo giảm"
+                col := color.new(#D50000, 0)
+            else
+                txt := "2 đầu Đỏ"
+                col := color.new(#FF8A80, 0)
+    [txt, col]
+
+// Theo dõi trong phiên HTF hiện tại (tín hiệu = nến [1] đã đóng)
+for i = 0 to nTF - 1
+    tNow = array.get(times, i)
+    tPrev = array.get(prevHtfT, i)
+    newHtf = not na(tNow) and (na(tPrev) or tNow != tPrev)
+    if newHtf
+        // Khoá kết quả phiên vừa đóng
+        array.set(lastSweepAt, i, array.get(sweepAt, i))
+        array.set(lastBreakAt, i, array.get(breakAt, i))
+        array.set(lastBackOpenAt, i, array.get(backOpenAt, i))
+        array.set(lastPeriodStart, i, tPrev)
+        array.set(sweepAt, i, na)
+        array.set(breakAt, i, na)
+        array.set(backOpenAt, i, na)
+        array.set(prevHtfT, i, tNow)
+
+    // Tín hiệu cho phiên đang chạy = nến đóng liền trước [1]
+    [sigTxt, sigColIgnore2] = f_signal(array.get(nxtO, i), array.get(nxtH, i), array.get(nxtL, i), array.get(nxtC, i))
+    cH = array.get(curH, i)
+    cL = array.get(curL, i)
+    cO = array.get(opens, i)
+    sH = array.get(nxtH, i)
+    sL = array.get(nxtL, i)
+    if sigTxt == "Báo tăng"
+        if na(array.get(sweepAt, i)) and not na(cH) and not na(sH) and cH > sH
+            array.set(sweepAt, i, time)
+        if na(array.get(breakAt, i)) and not na(cL) and not na(sL) and cL < sL
+            array.set(breakAt, i, time)
+        // Về Open sau khi đã lấy cao hơn
+        if not na(array.get(sweepAt, i)) and na(array.get(backOpenAt, i)) and not na(cL) and not na(cO) and cL <= cO
+            array.set(backOpenAt, i, time)
+    else if sigTxt == "Báo giảm"
+        if na(array.get(sweepAt, i)) and not na(cL) and not na(sL) and cL < sL
+            array.set(sweepAt, i, time)
+        if na(array.get(breakAt, i)) and not na(cH) and not na(sH) and cH > sH
+            array.set(breakAt, i, time)
+        if not na(array.get(sweepAt, i)) and na(array.get(backOpenAt, i)) and not na(cH) and not na(cO) and cH >= cO
+            array.set(backOpenAt, i, time)
+    else if sigTxt == "2 đầu Xanh"
+        // 2 đầu: có quyền phá CĐ/CT (ghi nhận, không phải đảo)
+        if na(array.get(breakAt, i)) and not na(cH) and not na(cL) and not na(sH) and not na(sL) and (cH > sH or cL < sL)
+            array.set(breakAt, i, time)
+        // Đi xanh (High > Open) rồi về Open → chuyển giảm
+        if na(array.get(sweepAt, i)) and not na(cH) and not na(cO) and cH > cO
+            array.set(sweepAt, i, time)
+        if not na(array.get(sweepAt, i)) and na(array.get(backOpenAt, i)) and not na(cL) and not na(cO) and cL <= cO
+            array.set(backOpenAt, i, time)
+    else if sigTxt == "2 đầu Đỏ"
+        if na(array.get(breakAt, i)) and not na(cH) and not na(cL) and not na(sH) and not na(sL) and (cH > sH or cL < sL)
+            array.set(breakAt, i, time)
+        // Đi đỏ (Low < Open) rồi về Open → chuyển tăng
+        if na(array.get(sweepAt, i)) and not na(cL) and not na(cO) and cL < cO
+            array.set(sweepAt, i, time)
+        if not na(array.get(sweepAt, i)) and na(array.get(backOpenAt, i)) and not na(cH) and not na(cO) and cH >= cO
+            array.set(backOpenAt, i, time)
+
+// ── Mốc mở cửa 1/4 (2) và 1/2 trong phiên W / 1M / 3M đang chạy ──
+// 1/4 đầu = Open khung (đã vẽ). Quý 2 @ +dur/4 · Quý 3 @ +dur/2 (= 1/2)
+// W: 7 ngày → 42h/quý | 1M/3M: theo lịch tháng / quý thực tế
+f_quarterDur(int tfIdx, int pStart) =>
+    int dur = array.get(tfMs, tfIdx)
+    if not na(pStart)
+        if tfIdx == 9
+            dur := 604800000
+        else if tfIdx == 10
+            y = year(pStart)
+            m = month(pStart)
+            nextY = m == 12 ? y + 1 : y
+            nextM = m == 12 ? 1 : m + 1
+            dur := int(timestamp(nextY, nextM, 1, 0, 0, 0) - pStart)
+        else if tfIdx == 11
+            y = year(pStart)
+            m = month(pStart)
+            nextM = m + 3
+            nextY = y
+            if nextM > 12
+                nextM := nextM - 12
+                nextY := y + 1
+            dur := int(timestamp(nextY, nextM, 1, 0, 0, 0) - pStart)
+    dur
+
+// Cache Open HTF theo phiên — khóa giá khi đổi period, không đổi khi scroll/zoom
+var float[] stableOpenPx = array.new_float(nTF, na)
+var int[] stableOpenT = array.new_int(nTF, na)
+for i = 0 to nTF - 1
+    int t0i = array.get(times, i)
+    float pxi = array.get(opens, i)
+    if not na(t0i) and not na(pxi)
+        int prevTi = array.get(stableOpenT, i)
+        if na(prevTi) or prevTi != t0i
+            array.set(stableOpenT, i, t0i)
+            array.set(stableOpenPx, i, pxi)
+
+var float[] q2OpenPx = array.new_float(nQuarter, na)
+var float[] halfOpenPx = array.new_float(nQuarter, na)
+var int[] q2OpenT = array.new_int(nQuarter, na)
+var int[] halfOpenT = array.new_int(nQuarter, na)
+var int[] qPrevPeriod = array.new_int(nQuarter, na)
+
+for k = 0 to nQuarter - 1
+    int tfIdx = array.get(qTfIdx, k)
+    int pStart = array.get(times, tfIdx)
+    int dur = f_quarterDur(tfIdx, pStart)
+    int prevP = array.get(qPrevPeriod, k)
+    if not na(pStart) and (na(prevP) or pStart != prevP)
+        array.set(q2OpenPx, k, na)
+        array.set(halfOpenPx, k, na)
+        array.set(q2OpenT, k, na)
+        array.set(halfOpenT, k, na)
+        array.set(qPrevPeriod, k, pStart)
+    if not na(pStart) and dur > 0
+        int tQ2 = pStart + dur / 4
+        int tHalf = pStart + dur / 2
+        // Chỉ bắt ĐÚNG nến cắt mốc (time[1] < mốc ≤ time).
+        // Không dùng "time >= mốc" — khi scroll/zoom cửa sổ tính lại lệch sẽ lấy nhầm open nến đầu.
+        bool crossQ2 = not na(time[1]) and time[1] < tQ2 and time >= tQ2
+        bool crossHalf = not na(time[1]) and time[1] < tHalf and time >= tHalf
+        if crossQ2
+            array.set(q2OpenPx, k, open)
+            array.set(q2OpenT, k, tQ2)
+        if crossHalf
+            array.set(halfOpenPx, k, open)
+            array.set(halfOpenT, k, tHalf)
+
+f_same(float a, float b) =>
+    not na(a) and not na(b) and math.abs(a - b) <= syminfo.mintick
+
+// Đường ngang / nhãn / cột giá: chỉ từ H12 trở lên (idx >= 4)
+f_drawLevel(int idx) =>
+    idx >= 4
+
+// Leader = khung nhỏ nhất trong nhóm Open trùng (chỉ các khung được vẽ) — dùng giá đã khóa
+f_isLeader(int idx) =>
+    bool ok = array.get(shows, idx) and f_drawLevel(idx) and not na(array.get(stableOpenPx, idx))
+    if ok and idx > 0
+        px = array.get(stableOpenPx, idx)
+        for j = 0 to idx - 1
+            if array.get(shows, j) and f_drawLevel(j) and f_same(px, array.get(stableOpenPx, j))
+                ok := false
+                break
+    ok
+
+f_showScale(int idx) =>
+    showPriceScale and f_isLeader(idx)
+
+// Gộp tên khung cùng mức Open (chỉ khung có đường ngang)
+f_mergedTag(int idx) =>
+    string names = array.get(tags, idx)
+    px = array.get(stableOpenPx, idx)
+    if idx < nTF - 1
+        for j = idx + 1 to nTF - 1
+            if array.get(shows, j) and f_drawLevel(j) and f_same(px, array.get(stableOpenPx, j))
+                names += "/" + array.get(tags, j)
+    names
+
+var line[]  lines  = array.new_line(nTF, na)
+var label[] tfTags = array.new_label(nTF, na)
+var line[]  q2Lines = array.new_line(nQuarter, na)
+var line[]  halfLines = array.new_line(nQuarter, na)
+var label[] q2Tags = array.new_label(nQuarter, na)
+var label[] halfTags = array.new_label(nQuarter, na)
+// Giá/thời điểm đã vẽ — tránh set lại Y mỗi lần scroll (chart.right_visible_bar_time)
+var float[] drawnOpenPx = array.new_float(nTF, na)
+var int[] drawnOpenT = array.new_int(nTF, na)
+var float[] drawnQ2Px = array.new_float(nQuarter, na)
+var int[] drawnQ2T = array.new_int(nQuarter, na)
+var float[] drawnHalfPx = array.new_float(nQuarter, na)
+var int[] drawnHalfT = array.new_int(nQuarter, na)
+
+f_barMs() =>
+    int(math.max(timeframe.in_seconds() * 1000, 60000))
+
+f_updLine(int idx) =>
+    on = array.get(shows, idx) and f_drawLevel(idx)
+    px = array.get(stableOpenPx, idx)
+    t0 = array.get(stableOpenT, idx)
+    col = array.get(cols, idx)
+    ln = array.get(lines, idx)
+    if on and not na(px) and not na(t0)
+        // Chỉ neo đoạn ngắn ngay sau mở phiên + extend.right
+        int barMs = f_barMs()
+        int x2 = t0 + barMs
+        bool needGeom = na(ln) or na(array.get(drawnOpenPx, idx)) or array.get(drawnOpenPx, idx) != px or array.get(drawnOpenT, idx) != t0
+        if na(ln)
+            ln := line.new(t0, px, x2, px, xloc = xloc.bar_time, extend = extend.right, color = col, width = lineWidth, style = xStyle)
+            array.set(drawnOpenPx, idx, px)
+            array.set(drawnOpenT, idx, t0)
+        else if needGeom
+            line.set_xy1(ln, t0, px)
+            line.set_xy2(ln, x2, px)
+            array.set(drawnOpenPx, idx, px)
+            array.set(drawnOpenT, idx, t0)
+        line.set_color(ln, col)
+        line.set_width(ln, lineWidth)
+        line.set_style(ln, xStyle)
+        line.set_extend(ln, extend.right)
+    else if not on and not na(ln)
+        // Chỉ xóa khi tắt hiển thị — không xóa khi px tạm na lúc recalc/scroll
+        line.delete(ln)
+        ln := na
+        array.set(drawnOpenPx, idx, na)
+        array.set(drawnOpenT, idx, na)
+    array.set(lines, idx, ln)
+
+// Nhãn tên khung sát lề phải viewport — scroll chỉ đổi X, Y lấy từ giá đã khóa
+f_updTfTag(int idx) =>
+    lb = array.get(tfTags, idx)
+    px = array.get(stableOpenPx, idx)
+    if showTfTags and f_isLeader(idx) and not na(px)
+        col = array.get(cols, idx)
+        txt = f_mergedTag(idx)
+        int xRight = chart.right_visible_bar_time + labelPad * f_barMs()
+        if na(lb)
+            lb := label.new(xRight, px, txt, xloc = xloc.bar_time, yloc = yloc.price, style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
+        else
+            label.set_xloc(lb, xRight, xloc.bar_time)
+            label.set_y(lb, px)
+            label.set_text(lb, txt)
+            label.set_textcolor(lb, color.white)
+            label.set_color(lb, col)
+            label.set_style(lb, label.style_label_left)
+            label.set_size(lb, size.small)
+    else if not showTfTags or not array.get(shows, idx) or not f_drawLevel(idx)
+        if not na(lb)
+            label.delete(lb)
+            lb := na
+    array.set(tfTags, idx, lb)
+
+// Đường + nhãn mốc 1/4 (2) / 1/2 cho W · 1M · 3M
+f_setQLine(int k, bool isHalf, bool on, float px, int t0, color col) =>
+    ln = isHalf ? array.get(halfLines, k) : array.get(q2Lines, k)
+    float prevPx = isHalf ? array.get(drawnHalfPx, k) : array.get(drawnQ2Px, k)
+    int prevT = isHalf ? array.get(drawnHalfT, k) : array.get(drawnQ2T, k)
+    if on and not na(px) and not na(t0)
+        int barMs = f_barMs()
+        int x2 = t0 + barMs
+        bool needGeom = na(ln) or na(prevPx) or prevPx != px or na(prevT) or prevT != t0
+        if na(ln)
+            ln := line.new(t0, px, x2, px, xloc = xloc.bar_time, extend = extend.right, color = col, width = lineWidth, style = qStyle)
+        else if needGeom
+            line.set_xy1(ln, t0, px)
+            line.set_xy2(ln, x2, px)
+        if needGeom
+            if isHalf
+                array.set(drawnHalfPx, k, px)
+                array.set(drawnHalfT, k, t0)
+            else
+                array.set(drawnQ2Px, k, px)
+                array.set(drawnQ2T, k, t0)
+        line.set_color(ln, col)
+        line.set_width(ln, lineWidth)
+        line.set_style(ln, qStyle)
+        line.set_extend(ln, extend.right)
+    else if not na(ln) and (not on or na(px) or na(t0))
+        // Tắt hiển thị hoặc đổi phiên / chưa tới mốc → xóa (tránh giữ giá phiên cũ)
+        line.delete(ln)
+        ln := na
+        if isHalf
+            array.set(drawnHalfPx, k, na)
+            array.set(drawnHalfT, k, na)
+        else
+            array.set(drawnQ2Px, k, na)
+            array.set(drawnQ2T, k, na)
+    if isHalf
+        array.set(halfLines, k, ln)
+    else
+        array.set(q2Lines, k, ln)
+
+f_setQTag(int k, bool isHalf, bool on, float px, color col, string txt) =>
+    lb = isHalf ? array.get(halfTags, k) : array.get(q2Tags, k)
+    if showTfTags and on and not na(px)
+        int xRight = chart.right_visible_bar_time + labelPad * f_barMs()
+        if na(lb)
+            lb := label.new(xRight, px, txt, xloc = xloc.bar_time, yloc = yloc.price, style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
+        else
+            // Scroll/zoom: chỉ neo X theo mép phải; Y giữ giá đã khóa
+            label.set_xloc(lb, xRight, xloc.bar_time)
+            label.set_y(lb, px)
+            label.set_text(lb, txt)
+            label.set_textcolor(lb, color.white)
+            label.set_color(lb, col)
+            label.set_style(lb, label.style_label_left)
+            label.set_size(lb, size.small)
+    else if not showTfTags or not on
+        if not na(lb)
+            label.delete(lb)
+            lb := na
+    if isHalf
+        array.set(halfTags, k, lb)
+    else
+        array.set(q2Tags, k, lb)
+
+// chart.right_visible_bar_time → re-run khi scroll/zoom: chỉ cập nhật X nhãn; Y đường đã khóa
+if barstate.islast
+    for i = 0 to nTF - 1
+        f_updLine(i)
+        f_updTfTag(i)
+    for k = 0 to nQuarter - 1
+        int tfIdx = array.get(qTfIdx, k)
+        bool qOn = array.get(qShows, k) and array.get(shows, tfIdx)
+        color qCol = array.get(cols, tfIdx)
+        f_setQLine(k, false, qOn, array.get(q2OpenPx, k), array.get(q2OpenT, k), qCol)
+        f_setQLine(k, true, qOn, array.get(halfOpenPx, k), array.get(halfOpenT, k), qCol)
+        f_setQTag(k, false, qOn, array.get(q2OpenPx, k), qCol, array.get(qTagQ2, k))
+        f_setQTag(k, true, qOn, array.get(halfOpenPx, k), qCol, array.get(qTagHalf, k))
+
+// Giá Open trên cột giá — dùng stableOpenPx (khóa theo phiên, không nhảy khi scroll)
+plot(f_showScale(0)  ? array.get(stableOpenPx, 0)  : na, "H1",  color = colH1,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(1)  ? array.get(stableOpenPx, 1)  : na, "H3",  color = colH3,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(2)  ? array.get(stableOpenPx, 2)  : na, "H4",  color = colH4,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(3)  ? array.get(stableOpenPx, 3)  : na, "H6",  color = colH6,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(4)  ? array.get(stableOpenPx, 4)  : na, "H12", color = colH12, linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(5)  ? array.get(stableOpenPx, 5)  : na, "D1",  color = colD1,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(6)  ? array.get(stableOpenPx, 6)  : na, "D2",  color = colD2,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(7)  ? array.get(stableOpenPx, 7)  : na, "D3",  color = colD3,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(8)  ? array.get(stableOpenPx, 8)  : na, "D5",  color = colD5,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(9)  ? array.get(stableOpenPx, 9)  : na, "W1",  color = colW1,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(10) ? array.get(stableOpenPx, 10) : na, "1M",  color = colM1,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+plot(f_showScale(11) ? array.get(stableOpenPx, 11) : na, "3M",  color = colM3,  linewidth = 2, style = plot.style_linebr, display = display.price_scale)
+
+// Giá mốc 1/4 (2) · 1/2 trên cột giá (khi đã qua thời điểm mở quý)
+plot(showPriceScale and showW1 and showWQuarters  ? array.get(q2OpenPx, 0)   : na, "1/4 (2) W",  color = colW1, linewidth = 1, style = plot.style_linebr, display = display.price_scale)
+plot(showPriceScale and showW1 and showWQuarters  ? array.get(halfOpenPx, 0) : na, "1/2 W",      color = colW1, linewidth = 1, style = plot.style_linebr, display = display.price_scale)
+plot(showPriceScale and showM1 and showM1Quarters ? array.get(q2OpenPx, 1)   : na, "1/4 (2) 1M", color = colM1, linewidth = 1, style = plot.style_linebr, display = display.price_scale)
+plot(showPriceScale and showM1 and showM1Quarters ? array.get(halfOpenPx, 1) : na, "1/2 1M",     color = colM1, linewidth = 1, style = plot.style_linebr, display = display.price_scale)
+plot(showPriceScale and showM3 and showM3Quarters ? array.get(q2OpenPx, 2)   : na, "1/4 (2) 3M", color = colM3, linewidth = 1, style = plot.style_linebr, display = display.price_scale)
+plot(showPriceScale and showM3 and showM3Quarters ? array.get(halfOpenPx, 2) : na, "1/2 3M",     color = colM3, linewidth = 1, style = plot.style_linebr, display = display.price_scale)
+
+// Đảo chiều trên NẾN HIỆN TẠI (đang chạy) vs tín hiệu nến đóng liền trước [1]
+// Cửa sổ: lý tưởng 1/4 · tối đa 1/2 phiên hiện tại
+f_reversalLive(int idx) =>
+    string txt = "—"
+    color col = color.gray
+    // Tín hiệu gốc = nến đã đóng [1]
+    sO = array.get(nxtO, idx)
+    sH = array.get(nxtH, idx)
+    sL = array.get(nxtL, idx)
+    sC = array.get(nxtC, idx)
+    // Nến hiện tại đang chạy
+    nH = array.get(curH, idx)
+    nL = array.get(curL, idx)
+    [sigTxt, sigColIgnore] = f_signal(sO, sH, sL, sC)
+    dur = array.get(tfMs, idx)
+    pStart = array.get(times, idx)              // mở phiên nến hiện tại
+    swAt = array.get(sweepAt, idx)              // realtime
+    brAt = array.get(breakAt, idx)
+    bkAt = array.get(backOpenAt, idx)
+    swPhase = f_phaseTag(swAt, pStart, dur)
+    brPhase = f_phaseTag(brAt, pStart, dur)
+    bkPhase = f_phaseTag(bkAt, pStart, dur)
+
+    if sigTxt == "Báo tăng" and not na(nH) and not na(nL) and not na(sH) and not na(sL)
+        takeHigh = nH > sH
+        breakLow = nL < sL
+        backOpen = not na(bkAt)
+        if takeHigh and backOpen
+            ph = bkPhase != "" ? bkPhase : swPhase
+            txt := ph != "" ? "Lấy cao→Open·" + ph : "Lấy cao→Open"
+            col := ph == "1/4" ? color.new(#00C853, 0) : ph == "1/2" ? color.new(#FFB300, 0) : color.new(#FF6D00, 0)
+        else if takeHigh and breakLow
+            ph = swPhase != "" ? swPhase : brPhase
+            txt := ph != "" ? "Lấy cao+Phá CT·" + ph : "Lấy cao+Phá CT"
+            col := color.new(#FF6D00, 0)
+        else if takeHigh
+            txt := swPhase != "" ? "Lấy cao·" + swPhase : "Lấy cao hơn"
+            col := swPhase == "muộn" ? color.new(#FF8A65, 0) : color.new(#FFB300, 0)
+        else if breakLow
+            txt := brPhase != "" ? "Phá CT·" + brPhase : "Phá cực tiểu"
+            col := color.new(#FF6D00, 0)
+        else
+            txt := "Chưa đảo"
+            col := color.new(#78909C, 0)
+    else if sigTxt == "Báo giảm" and not na(nH) and not na(nL) and not na(sH) and not na(sL)
+        takeLow = nL < sL
+        breakHigh = nH > sH
+        backOpen = not na(bkAt)
+        if takeLow and backOpen
+            ph = bkPhase != "" ? bkPhase : swPhase
+            txt := ph != "" ? "Lấy thấp→Open·" + ph : "Lấy thấp→Open"
+            col := ph == "1/4" ? color.new(#00C853, 0) : ph == "1/2" ? color.new(#FFB300, 0) : color.new(#FF6D00, 0)
+        else if takeLow and breakHigh
+            ph = swPhase != "" ? swPhase : brPhase
+            txt := ph != "" ? "Lấy thấp+Phá CĐ·" + ph : "Lấy thấp+Phá CĐ"
+            col := color.new(#FF6D00, 0)
+        else if takeLow
+            txt := swPhase != "" ? "Lấy thấp·" + swPhase : "Lấy thấp hơn"
+            col := swPhase == "muộn" ? color.new(#FF8A65, 0) : color.new(#FFB300, 0)
+        else if breakHigh
+            txt := brPhase != "" ? "Phá CĐ·" + brPhase : "Phá cực đại"
+            col := color.new(#FF6D00, 0)
+        else
+            txt := "Chưa đảo"
+            col := color.new(#78909C, 0)
+    else if sigTxt == "2 đầu Xanh" and not na(nH) and not na(nL)
+        // 2 đầu: được phá CĐ/CT · đảo = đi xanh → về Open trong 1/4–1/2
+        goGreen = not na(swAt) or (not na(nH) and not na(array.get(opens, idx)) and nH > array.get(opens, idx))
+        backOpen = not na(bkAt)
+        brokeExt = not na(brAt) or (not na(sH) and not na(sL) and (nH > sH or nL < sL))
+        if goGreen and backOpen
+            ph = bkPhase != "" ? bkPhase : swPhase
+            txt := ph != "" ? "Chuyển giảm·" + ph : "Chuyển giảm"
+            col := ph == "1/4" ? color.new(#00C853, 0) : ph == "1/2" ? color.new(#FFB300, 0) : color.new(#FF6D00, 0)
+        else if goGreen
+            txt := swPhase != "" ? "Đi xanh·" + swPhase : "Đi xanh"
+            col := swPhase == "muộn" ? color.new(#FF8A65, 0) : color.new(#FFB300, 0)
+        else if brokeExt
+            txt := "Phá cực (được)"
+            col := color.new(#90A4AE, 0)
+        else
+            txt := "Chưa đảo"
+            col := color.new(#78909C, 0)
+    else if sigTxt == "2 đầu Đỏ" and not na(nH) and not na(nL)
+        goRed = not na(swAt) or (not na(nL) and not na(array.get(opens, idx)) and nL < array.get(opens, idx))
+        backOpen = not na(bkAt)
+        brokeExt = not na(brAt) or (not na(sH) and not na(sL) and (nH > sH or nL < sL))
+        if goRed and backOpen
+            ph = bkPhase != "" ? bkPhase : swPhase
+            txt := ph != "" ? "Chuyển tăng·" + ph : "Chuyển tăng"
+            col := ph == "1/4" ? color.new(#00C853, 0) : ph == "1/2" ? color.new(#FFB300, 0) : color.new(#FF6D00, 0)
+        else if goRed
+            txt := swPhase != "" ? "Đi đỏ·" + swPhase : "Đi đỏ"
+            col := swPhase == "muộn" ? color.new(#FF8A65, 0) : color.new(#FFB300, 0)
+        else if brokeExt
+            txt := "Phá cực (được)"
+            col := color.new(#90A4AE, 0)
+        else
+            txt := "Chưa đảo"
+            col := color.new(#78909C, 0)
+    [txt, col]
+
+f_cell(table t, int col, int row, string txt, color tc, color bg) =>
+    table.cell(t, col, row, txt, text_color = tc, text_size = size.small, text_halign = text.align_right, bgcolor = bg)
+
+f_row(table t, int row, int idx) =>
+    on = array.get(shows, idx)
+    if on
+        // Tín hiệu = nến đóng liền trước [1]
+        [sig, sigCol] = f_signal(array.get(nxtO, idx), array.get(nxtH, idx), array.get(nxtL, idx), array.get(nxtC, idx))
+        // Đảo chiều = NẾN HIỆN TẠI phản ứng với tín hiệu [1] (realtime)
+        [rev, revCol] = f_reversalLive(idx)
+        f_cell(t, 0, row, array.get(tags, idx), array.get(cols, idx), color.new(color.black, 100))
+        f_cell(t, 1, row, str.tostring(array.get(nxtH, idx), format.mintick), color.white, color.new(color.black, 100))
+        f_cell(t, 2, row, str.tostring(array.get(nxtL, idx), format.mintick), color.white, color.new(color.black, 100))
+        f_cell(t, 3, row, sig, sigCol, color.new(sigCol, 75))
+        f_cell(t, 4, row, rev, revCol, color.new(revCol, 75))
+    else
+        f_cell(t, 0, row, "", color.gray, color.new(color.black, 100))
+        f_cell(t, 1, row, "", color.gray, color.new(color.black, 100))
+        f_cell(t, 2, row, "", color.gray, color.new(color.black, 100))
+        f_cell(t, 3, row, "", color.gray, color.new(color.black, 100))
+        f_cell(t, 4, row, "", color.gray, color.new(color.black, 100))
+
+var table tb = na
+if showTable and barstate.islast
+    if na(tb)
+        tb := table.new(f_tablePos(tablePosIn), 5, nTF + 1, bgcolor = color.new(#111111, 10), border_width = 1, border_color = color.new(#FFFFFF, 80))
+        f_cell(tb, 0, 0, "TF", color.gray, color.new(color.black, 100))
+        f_cell(tb, 1, 0, "Cực đại", color.gray, color.new(color.black, 100))
+        f_cell(tb, 2, 0, "Cực tiểu", color.gray, color.new(color.black, 100))
+        f_cell(tb, 3, 0, "Tín hiệu", color.gray, color.new(color.black, 100))
+        f_cell(tb, 4, 0, "Đảo (hiện tại)", color.gray, color.new(color.black, 100))
+    for i = 0 to nTF - 1
+        f_row(tb, i + 1, i)
+
+alertcondition(showH1  and low <= h1Open  and high >= h1Open,  "Chạm H1 Open",  "BMaGvn: chạm Open H1")
+alertcondition(showH3  and low <= h3Open  and high >= h3Open,  "Chạm H3 Open",  "BMaGvn: chạm Open H3")
+alertcondition(showH4  and low <= h4Open  and high >= h4Open,  "Chạm H4 Open",  "BMaGvn: chạm Open H4")
+alertcondition(showH6  and low <= h6Open  and high >= h6Open,  "Chạm H6 Open",  "BMaGvn: chạm Open H6")
+alertcondition(showH12 and low <= h12Open and high >= h12Open, "Chạm H12 Open", "BMaGvn: chạm Open H12")
+alertcondition(showD1  and low <= d1Open  and high >= d1Open,  "Chạm D1 Open",  "BMaGvn: chạm Open D1")
+alertcondition(showD2  and low <= d2Open  and high >= d2Open,  "Chạm D2 Open",  "BMaGvn: chạm Open D2")
+alertcondition(showD3  and low <= d3Open  and high >= d3Open,  "Chạm D3 Open",  "BMaGvn: chạm Open D3")
+alertcondition(showD5  and low <= d5Open  and high >= d5Open,  "Chạm D5 Open",  "BMaGvn: chạm Open D5")
+alertcondition(showW1  and low <= w1Open  and high >= w1Open,  "Chạm W1 Open",  "BMaGvn: chạm Open W1")
+alertcondition(showM1  and low <= m1Open  and high >= m1Open,  "Chạm 1M Open",  "BMaGvn: chạm Open 1M")
+alertcondition(showM3  and low <= m3Open  and high >= m3Open,  "Chạm 3M Open",  "BMaGvn: chạm Open 3M")
